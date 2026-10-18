@@ -8,3 +8,6 @@ Downloads GitHub/
 
 # Configuração local do Claude
 .claude/
+
+# Páginas de exemplo locais (fotos reais da empresa)
+exemplos/
