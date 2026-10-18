@@ -885,16 +885,10 @@ document.addEventListener('keydown',function(e){if(e.key==='Escape')closeModal()
   $('#nav').innerHTML=nav;
   var rs=filtered(S.viewRecs),h='';
   var mb='<button class="btn menu-btn noprint" id="mb" style="margin-bottom:8px">☰ Menu</button> <button class="btn pri menu-btn noprint" data-act="impX" style="margin-bottom:8px">📂 IMPORTAR EXCEL</button>';
-  var pr=S.periodo||{tipo:'mes'},pv=S.perEdit?'custom':pr.tipo,pOpts=[['mes','Mês atual'],['3m','Últimos 3 meses'],['ano','Este ano'],['anoAnt','Ano anterior'],['custom','Personalizado'],['tudo','Tudo (pode demorar)']];
-  mb+='<div class="noprint" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 10px"><b style="font-size:13px">Período:</b><select id="perSel" style="width:auto">'+pOpts.map(function(o){return '<option value="'+o[0]+'"'+(o[0]===pv?' selected':'')+'>'+o[1]+'</option>'}).join('')+'</select>'
-   +(pv==='custom'?'<input type="date" id="perDe" value="'+((S.perEdit?(periodoRange()||{}).de:pr.de)||'')+'" style="width:auto"><input type="date" id="perAte" value="'+((S.perEdit?(periodoRange()||{}).ate:pr.ate)||'')+'" style="width:auto"><button class="btn sm" id="perOk">Aplicar</button>':'')
-   +'<span class="note">'+periodoTxt()+' · '+nf(S.recs.length)+' registro(s) carregado(s)</span></div>';
   if(current){h=pCustomTab(current,rs)}
   else switch(S.page){case 'dash':h=pDash(rs,'Dashboard',{consol:true});break;case 'reg':h=pReg(rs,{base:S.viewRecs});break;case 'pareto':h=pPareto(rs);break;case 'per':h=pPer(rs);break;case 'mes':h=pMes(rs);break;case 'rel':h=pRel(rs);break;case 'dados':h=pDados();break;case 'fotos':h=pFotos();break;case 'acessos':h=pAcessos();break}
   if(analytics)h='<div class="note" style="margin:0 0 10px">Fonte dos dados: todas as abas (consolidado) · '+nf(S.regTabs.length+1)+' abas incluídas.</div>'+h;var y=window.scrollY;document.getElementById('main').innerHTML=mb+h;window.scrollTo(0,y);
-  var m=$('#mb');if(m)m.onclick=function(){$('#side').classList.toggle('open')};
-  var ps=$('#perSel');if(ps)ps.onchange=function(){if(ps.value==='custom'){S.perEdit=true;render();return}setPeriodo({tipo:ps.value})};
-  var po=$('#perOk');if(po)po.onclick=function(){var de=$('#perDe').value,ate=$('#perAte').value;if(!de||!ate||de>ate){toast('Informe as duas datas, com o início antes do fim.');return}setPeriodo({tipo:'custom',de:de,ate:ate})};i18n()}
+  var m=$('#mb');if(m)m.onclick=function(){$('#side').classList.toggle('open')};i18n()}
 
 /* ===== Idiomas, login e acessos ===== */
 var LG=['pt','en','es','ko'],D={},USER=null,MEM={};
@@ -1036,7 +1030,7 @@ function pFotos(){var q=norm(S.fq||''),l=(S.fotos||[]).filter(function(f){return
 /* ===== Início ===== */
  function boot(){
   $('#main').innerHTML='<div class="empty">Carregando…</div>';
-  S.recs=[];S.regTabs=[];S.fotos=[];S.viewRecs=[];S.ready=true;S.activeTabId='main';S.periodo=lerPeriodo();startAuth()}
+  S.recs=[];S.regTabs=[];S.fotos=[];S.viewRecs=[];S.ready=true;S.activeTabId='main';S.periodo={tipo:'mes'};startAuth()}
 window.GP12={importFile:importFile,S:S,filtered:filtered,pareto:pareto,series:series,sum:sum};
 boot();
 })();
