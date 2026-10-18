@@ -111,6 +111,9 @@ create policy "config: logados inserem" on public.config
 drop policy if exists "config: logados alteram" on public.config;
 create policy "config: logados alteram" on public.config
   for update to authenticated using (true) with check (true);
+drop policy if exists "config: logados excluem" on public.config;
+create policy "config: logados excluem" on public.config
+  for delete to authenticated using (true);
 
 -- ---------- Histórico de acessos ----------
 -- Cada pessoa só registra o próprio login/logout; só o admin lê.
@@ -136,7 +139,7 @@ create policy "acessos: admin lê" on public.acessos
 revoke all on public.perfis, public.registros, public.config, public.acessos from anon;
 grant select, update                 on public.perfis    to authenticated;
 grant select, insert, update, delete on public.registros to authenticated;
-grant select, insert, update         on public.config    to authenticated;
+grant select, insert, update, delete on public.config    to authenticated;
 grant select, insert                 on public.acessos   to authenticated;
 revoke execute on function public.is_admin() from anon;
 grant execute on function public.is_admin() to authenticated;
