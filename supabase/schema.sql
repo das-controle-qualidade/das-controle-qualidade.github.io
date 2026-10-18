@@ -175,3 +175,15 @@ create policy "fotos: logados substituem" on storage.objects
 drop policy if exists "fotos: logados excluem" on storage.objects;
 create policy "fotos: logados excluem" on storage.objects
   for delete to authenticated using (bucket_id = 'fotos');
+
+-- ---------- Uso do banco (painel em Dados & Backup) ----------
+-- Só leitura: tamanho do banco e quantidade de registros.
+create or replace function public.uso_banco() returns json
+language sql stable security definer set search_path = public as $$
+  select json_build_object(
+    'banco_bytes', pg_database_size(current_database()),
+    'registros', (select count(*) from public.registros)
+  );
+$$;
+revoke execute on function public.uso_banco() from anon, public;
+grant execute on function public.uso_banco() to authenticated;
