@@ -187,3 +187,7 @@ language sql stable security definer set search_path = public as $$
 $$;
 revoke execute on function public.uso_banco() from anon, public;
 grant execute on function public.uso_banco() to authenticated;
+
+-- ---------- Modo por período ----------
+-- Índice pela data do registro: buscar um mês/ano fica rápido mesmo com centenas de milhares.
+create index if not exists registros_data on public.registros ((dados ->> 'date'));

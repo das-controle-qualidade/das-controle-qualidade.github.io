@@ -318,7 +318,28 @@ function toRow(r){var d=Object.assign({},r),ph=r.photo||'',p=fotoPath(ph),mp=fot
  else job=Promise.resolve({fp:p,src:ph,mp:(p&&mp&&mp.indexOf('mini/')===0)?mp:null});
  return job.then(function(o){if(!o.fp||o.mp)return o;var m='mini/'+o.fp.split('/').pop();return makeMini(o.src).then(function(md){return upFoto(m,md)}).then(function(){o.mp=m;return o},function(){o.mp=null;return o})})
  .then(function(o){d.photo=o.fp?'sb:'+o.fp:'';d.photoMini=o.mp?'sb:'+o.mp:'';d.id=r.id;return {id:r.id,tab_id:recordTabId(r),dados:d}})}
-function dbAll(){var all=[];function page(from){return sb.from('registros').select('id,tab_id,dados').order('id').range(from,from+999).then(sbErr).then(function(r){var l=r.data||[];all=all.concat(l);return l.length===1000?page(from+1000):all})}return page(0).then(fromRows)}
+/* Modo por período: o sistema carrega só as datas escolhidas (padrão: mês atual) */
+function hojeISO(d){d=d||new Date();return d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2)}
+function lerPeriodo(){var p=null;try{p=JSON.parse(localStorage.getItem('qc_periodo')||'null')}catch(e){}return p&&p.tipo?p:{tipo:'mes'}}
+function periodoRange(p){p=p||S.periodo||{tipo:'mes'};var t=new Date(),y=t.getFullYear(),m=t.getMonth();
+ if(p.tipo==='mes')return {de:hojeISO(new Date(y,m,1)),ate:hojeISO(new Date(y,m+1,0))};
+ if(p.tipo==='3m')return {de:hojeISO(new Date(y,m-2,1)),ate:hojeISO(new Date(y,m+1,0))};
+ if(p.tipo==='ano')return {de:y+'-01-01',ate:y+'-12-31'};
+ if(p.tipo==='anoAnt')return {de:(y-1)+'-01-01',ate:(y-1)+'-12-31'};
+ if(p.tipo==='custom'&&p.de&&p.ate)return {de:p.de,ate:p.ate};
+ return null}
+function inPeriodo(d){var r=periodoRange();return !r||(!!d&&d>=r.de&&d<=r.ate)}
+function periodoTxt(){var r=periodoRange();return r?fd(r.de)+' a '+fd(r.ate):'todo o histórico'}
+function setPeriodo(p){S.periodo=p;S.perEdit=false;try{localStorage.setItem('qc_periodo',JSON.stringify(p))}catch(e){}loadData().then(render)}
+function dbAllRange(rg,onProg){function base(sel,opt){var x=sb.from('registros').select(sel,opt);if(rg)x=x.gte('dados->>date',rg.de).lte('dados->>date',rg.ate);return x}
+ return base('id',{count:'exact',head:true}).then(sbErr).then(function(r){var n=r.count||0,pages=[],done=0;for(var i=0;i<n;i+=1000)pages.push(i);
+  return seqMap(pages,function(from){return base('id,tab_id,dados').order('id').range(from,from+999).then(sbErr).then(function(x){done++;if(onProg)onProg(done,pages.length);return x.data||[]})})
+  .then(function(parts){var rows=[];parts.forEach(function(p){rows=rows.concat(p)});return fromRows(rows)})})}
+function dbAll(){return dbAllRange(periodoRange())}
+/* Busca no banco (não só na tela) os ids de abas inteiras ou de um intervalo de datas */
+function idsDoBanco(tabs,rg){var ids=[];function page(from){var x=sb.from('registros').select('id').in('tab_id',tabs);if(rg)x=x.gte('dados->>date',rg.de).lte('dados->>date',rg.ate);return x.order('id').range(from,from+999).then(sbErr).then(function(r){var l=r.data||[];l.forEach(function(w){ids.push(+w.id)});return l.length===1000?page(from+1000):ids})}return page(0)}
+/* Backup completo e "Registrar tudo": usam todos os registros do banco, não só o período */
+function comTudo(fn){toast('Buscando todos os registros do banco…');return dbAllRange(null,function(d,t){if(t>3)toast('Buscando registros… '+Math.round(d/t*100)+'%')}).then(function(all){var keep=S.recs;S.recs=all;try{fn()}finally{S.recs=keep}}).catch(function(e){toast('Não foi possível buscar todos os registros: '+((e&&e.message)||'erro de conexão'))})}
 function dbPut(list){return seqMap(list,toRow).then(function(rows){var p=Promise.resolve();for(var i=0;i<rows.length;i+=500)(function(chunk){p=p.then(function(){return sb.from('registros').upsert(chunk).then(sbErr)})})(rows.slice(i,i+500));return p})}
 function rmRecFotos(ids){return sb.from('registros').select('foto:dados->>photo,mini:dados->>photoMini').in('id',ids).then(function(r){var ps=[];(r.data||[]).forEach(function(x){ps.push(fotoPath(x.foto),fotoPath(x.mini))});ps=ps.filter(function(p){return p&&(p.indexOf('reg/')===0||p.indexOf('mini/')===0)});return ps.length?sb.storage.from('fotos').remove(ps):null}).catch(function(){})}
 function dbDelMany(ids){var p=Promise.resolve();for(var i=0;i<ids.length;i+=200)(function(chunk){p=p.then(function(){return rmRecFotos(chunk)}).then(function(){return sb.from('registros').delete().in('id',chunk).then(sbErr)})})(ids.slice(i,i+200));return p}
@@ -348,7 +369,7 @@ function usoCard(){if(!S.uso){loadUso();return '<div class="card"><h3>Uso de fot
 function bancoCard(){if(!S.uso){loadUso();return ''}var bd=S.uso.banco;if(!bd)return '';
  var n=+bd.registros||0,b=+bd.banco_bytes||0,LIM=524288000,pct=b/LIM*100,porMes=6000,mesesAte30=Math.max(0,Math.ceil((30000-n)/porMes)),cor=n<30000?'var(--ok)':(n<50000?'#e0a020':'var(--ng)');
  var aviso=n<30000?'Modo por período recomendado a partir de 30 mil registros. No ritmo de ~6 mil por mês, faltam cerca de '+mesesAte30+' mês(es).':(n<50000?'<b style="color:#e0a020">Já passou de 30 mil registros: é hora de ativar o modo por período para o sistema continuar rápido.</b>':'<b style="color:var(--ng)">Mais de 50 mil registros: o sistema fica lento para abrir sem o modo por período.</b>');
- return '<div class="card"><h3>Registros no banco</h3><div class="kpis"><div class="kpi ok"><span>Registros salvos</span><b>'+nf(n)+'</b></div><div class="kpi ok"><span>Espaço do banco</span><b>'+fmtB(b)+'</b><div class="note">de 500 MB grátis</div></div></div>'
+ return '<div class="card"><h3>Registros no banco</h3><div class="kpis"><div class="kpi ok"><span>Registros no banco (total)</span><b>'+nf(n)+'</b></div><div class="kpi ok"><span>Espaço do banco</span><b>'+fmtB(b)+'</b><div class="note">de 500 MB grátis</div></div></div>'
   +'<div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:6px"><span>Banco usado</span><span class="note">'+pct.toFixed(1).replace('.',',')+'%</span></div>'
   +'<div style="height:10px;border-radius:5px;background:var(--card);border:1px solid var(--line);overflow:hidden"><div style="width:'+Math.min(100,pct).toFixed(2)+'%;min-width:4px;height:100%;background:'+(pct<70?'var(--ok)':(pct<90?'#e0a020':'var(--ng)'))+'"></div></div>'
   +'<div style="display:flex;justify-content:space-between;font-size:13px;margin:10px 0 6px"><span>Registros até o limite recomendado (30 mil)</span><span class="note">'+nf(n)+' / 30.000</span></div>'
@@ -375,7 +396,7 @@ function startRealtime(){if(RT)return;RT=sb.channel('qc-dados').on('postgres_cha
 function stopRealtime(){if(RT){sb.removeChannel(RT);RT=null}rtQueue=[];clearTimeout(rtTimer)}
 function rtFlush(){var q=rtQueue;rtQueue=[];var del={},upd={};q.forEach(function(p){if(p.eventType==='DELETE'){var id=p.old&&+p.old.id;if(id){del[id]=1;delete upd[id]}}else if(p.new){upd[+p.new.id]=p.new;delete del[+p.new.id]}});
  var rows=Object.keys(upd).map(function(k){return upd[k]});
- fromRows(rows).then(function(recs){var by={};recs.forEach(function(r){by[r.id]=r});
+ fromRows(rows).then(function(recs){var by={};recs.forEach(function(r){if(inPeriodo(r.date))by[r.id]=r;else del[r.id]=1});
   S.recs=S.recs.filter(function(r){return !del[r.id]}).map(function(r){if(by[r.id]){var n=by[r.id];delete by[r.id];return n}return r});
   Object.keys(by).forEach(function(k){S.recs.push(by[k])});rtRender()}).catch(function(){})}
 function rtRender(){if(!USER)return;S.viewRecs=recordsForTab(S.activeTabId||'main');if($('#modals').innerHTML||S.page==='acessos'){S.rtPending=true;return}render()}
@@ -611,7 +632,7 @@ function pRel(rs){
 function pDados(){
  var all=S.recs,s=sum(all);var size=(JSON.stringify(all).length/1048576).toFixed(1);
  return '<h1>Dados &amp; Backup</h1><div class="sub">Armazenamento na nuvem, importação e exportação</div>'
- +'<div class="card"><h3>Sobre o armazenamento</h3><p class="note">Os registros, as fotos e as abas ficam salvos na nuvem (Supabase) e aparecem para todos os usuários logados, em qualquer computador. Alterações feitas por outra pessoa aparecem sozinhas na tela. Use o backup completo (.json) para guardar uma cópia de segurança.</p><div class="kpis"><div class="kpi"><span>Registros salvos</span><b>'+nf(all.length)+'</b></div><div class="kpi ok"><span>Período coberto</span><b class="sm">'+periodText(all)+'</b></div><div class="kpi"><span>Tamanho aprox.</span><b class="sm">'+size+' MB</b></div></div></div>'
+ +'<div class="card"><h3>Sobre o armazenamento</h3><p class="note">Os registros, as fotos e as abas ficam salvos na nuvem (Supabase) e aparecem para todos os usuários logados, em qualquer computador. Alterações feitas por outra pessoa aparecem sozinhas na tela. Use o backup completo (.json) para guardar uma cópia de segurança.</p><div class="kpis"><div class="kpi"><span>Registros no período</span><b>'+nf(all.length)+'</b></div><div class="kpi ok"><span>Período coberto</span><b class="sm">'+periodText(all)+'</b></div><div class="kpi"><span>Tamanho aprox.</span><b class="sm">'+size+' MB</b></div></div></div>'
  +backupCard()+bancoCard()+usoCard()+'<div class="card"><h3>Importar planilha do Excel mensalmente</h3><p class="note">Use a planilha <b>padrão QC</b>: o sistema lê somente a aba <b>MODELO_IMPORTAÇÃO</b> e aceita as colunas <b>Data, Foto do problema, Código, Modelo, Problema, Local, Scrap, Rework, Turno, Inspetor, Turno, Operador, Turno, Soldador, Turno, Máquina e Observação</b> (cada “Turno” pertence ao nome que vem logo depois dele). Imagens colocadas na coluna Foto do problema são importadas junto, na linha correspondente. Pode importar mês a mês: o que já existe (mesmos dados) é ignorado, nada é duplicado. Também aceita os cabeçalhos antigos NG e RE, o formato mensal antigo e backups .json.</p><div class="bar"><label style="display:flex;flex-direction:column;font-size:11px;color:var(--mut);gap:3px">Importar para<select id="imp_dest">'+tabsAll().map(function(t){return '<option value="'+esc(t.id)+'"'+((S.impDest||'main')===t.id?' selected':'')+'>'+esc(t.name)+'</option>'}).join('')+'</select></label><button class="btn pri" data-act="impDest" style="font-weight:700">📂 IMPORTAR EXCEL</button></div></div>'
  +'<div class="card"><h3>Registrar tudo (salvar tudo o que foi preenchido)</h3><p class="note">Reúne todos os registros do sistema, tanto os importados do Excel quanto os lançados direto no sistema, de <b>todas as abas</b> ('+nf(S.recs.length)+' registro(s) em '+tabsAll().length+' aba(s)). O Excel traz um resumo geral, a aba TODOS e uma aba para cada Registro, no padrão QC.</p><div class="bar"><button class="btn pri" data-act="regAll">Registrar tudo em Excel (.xlsx)</button><button class="btn" data-act="expBackup">Registrar tudo em backup completo (.json)</button></div></div>'
   +'<div class="card"><h3>Exportar / Backup — padrão QC</h3><div class="bar" style="margin-bottom:10px"><label style="display:flex;gap:8px;align-items:center">Exportar de:<select id="exp_scope">'+scopeOptions()+'</select></label></div><div class="bar"><button class="btn pri" data-act="expBackup">Backup completo (.json)</button><button class="btn" data-act="expStd">Excel padrão QC (.xlsx)</button><button class="btn" data-act="expCsvS">CSV padrão QC (;)</button></div><p class="note" style="margin-top:10px">Outras versões:</p><div class="bar"><button class="btn" data-act="expAna">Excel analítico (com Tipo e Quantidade)</button><button class="btn" data-act="expCsvC">CSV internacional (,)</button><button class="btn" data-act="expF">Exportar dados filtrados</button></div><p class="note" style="margin-top:10px">O Excel e o CSV padrão QC têm as mesmas colunas do modelo de importação, então podem ser importados de novo. O backup completo (.json) guarda todas as abas, registros, fotos dos registros e a biblioteca de fotos, e é o formato indicado para restaurar tudo. As fotos não vão dentro do Excel nem do CSV (a coluna Foto indica Sim); elas ficam no backup .json.</p></div>'
@@ -622,7 +643,7 @@ function createTabConfirm(){var name=($('#regTabName')&&$('#regTabName').value||
 function renameTabModal(id){var t=(S.regTabs||[]).filter(function(x){return x.id===id})[0];if(!t)return;S.editingTabId=id;openModal('<h2>Renomear aba</h2><label>Novo nome<input type="text" id="regTabName" maxlength="60" value="'+esc(t.name)+'" style="width:100%"></label><div class="mfoot"><button class="btn" data-act="closeM">Cancelar</button><button class="btn pri" data-act="renameTabConfirm">Salvar nome</button></div>')}
 function renameTabConfirm(){var id=S.editingTabId,name=($('#regTabName')&&$('#regTabName').value||'').trim(),t=(S.regTabs||[]).filter(function(x){return x.id===id})[0];if(!t)return;if(!name){toast('Digite o nome da aba.');return}if((S.regTabs||[]).some(function(x){return x.id!==id&&norm(x.name)===norm(name)})){toast('Já existe uma aba com esse nome.');return}t.name=name;mset('regTabs',S.regTabs).then(function(){closeModal();render();toast('Nome da aba atualizado.')})}
 function deleteTabModal(id){var t=(S.regTabs||[]).filter(function(x){return x.id===id})[0];if(!t)return;S.deletingTabId=id;var n=recordsForTab(id).length;openModal('<h2>Excluir aba</h2><p>Excluir <b>'+esc(t.name)+'</b> e seus '+nf(n)+' registro(s)? Esta ação não pode ser desfeita.</p><p class="warn">Os dados desta aba serão removidos; as outras abas e o dashboard principal permanecerão intactos.</p><div class="mfoot"><button class="btn" data-act="closeM">Cancelar</button><button class="btn dan" data-act="deleteTabConfirm">Excluir aba e dados</button></div>')}
-function deleteTabConfirm(){var id=S.deletingTabId,t=S.regTabs.filter(function(x){return x.id===id})[0];if(!t)return;var ids=recordsForTab(id).map(function(r){return r.id});S.recs=S.recs.filter(function(r){return recordTabId(r)!==id});S.regTabs=S.regTabs.filter(function(x){return x.id!==id});var work=memMode?Promise.resolve():dbDelMany(ids);work.then(function(){return mset('regTabs',S.regTabs)}).then(function(){S.page='dash';S.activeTabId='main';S.f={};S.pg=1;closeModal();render();toast('Aba excluída.')})}
+function deleteTabConfirm(){var id=S.deletingTabId,t=S.regTabs.filter(function(x){return x.id===id})[0];if(!t)return;var ids=recordsForTab(id).map(function(r){return r.id});S.recs=S.recs.filter(function(r){return recordTabId(r)!==id});S.regTabs=S.regTabs.filter(function(x){return x.id!==id});var work=idsDoBanco([id]).then(dbDelMany);work.then(function(){return mset('regTabs',S.regTabs)}).then(function(){S.page='dash';S.activeTabId='main';S.f={};S.pg=1;closeModal();render();toast('Aba excluída.')})}
 
 /* ===== Detalhamento ===== */
 function detail(kind,v){
@@ -677,7 +698,7 @@ function saveForm(){
  var ng=t==='RE'?0:Math.max(0,+$('#f_ng').value||0),re=t==='NG'?0:Math.max(0,+$('#f_re').value||0);
  var oldRec=id?S.recs.filter(function(r){return r.id===+id})[0]:null;
  var rec={id:id?+id:nextId(),tabId:oldRec?recordTabId(oldRec):(S.activeTabId||'main'),date:date,code:$('#f_code').value.trim(),model:$('#f_model').value.trim(),problem:prob,ng:ng,re:re,turno:$('#f_turno').value.trim(),insp:$('#f_insp').value.trim(),operador:$('#f_operador').value.trim(),turnoOperador:$('#f_turnoOperador').value.trim(),turnoSoldador:$('#f_turnoSoldador').value.trim(),turnoMaquina:$('#f_turnoMaquina').value.trim(),maquina:$('#f_maquina').value.trim(),soldador:$('#f_soldador').value.trim(),local:$('#f_local').value.trim(),photo:S.photo||'',obs:$('#f_obs').value.trim()};
- save([rec]).then(function(){if(id){S.recs=S.recs.map(function(r){return r.id===rec.id?rec:r})}else S.recs.push(rec);closeModal();toast(id?'Registro atualizado e salvo.':'Registro adicionado e salvo.');render()}).catch(function(e){console.error('Falha ao salvar registro QC:',e)})}
+ save([rec]).then(function(){if(id){S.recs=S.recs.map(function(r){return r.id===rec.id?rec:r})}else S.recs.push(rec);closeModal();if(!inPeriodo(rec.date)){S.recs=S.recs.filter(function(r){return r.id!==rec.id});toast('Registro salvo. A data '+fd(rec.date)+' está fora do período exibido ('+periodoTxt()+').')}else toast(id?'Registro atualizado e salvo.':'Registro adicionado e salvo.');render()}).catch(function(e){console.error('Falha ao salvar registro QC:',e)})}
 function confirmDel(id){
  var r=S.recs.filter(function(x){return x.id===id})[0];if(!r)return;
  openModal('<h2>Excluir registro</h2><p>Tem certeza que deseja excluir este registro?</p><div class="note">'+fd(r.date)+' · '+esc(r.code)+' · '+esc(r.model)+' · '+esc(r.problem)+' · Scrap '+r.ng+' · Rework '+r.re+'</div><div class="mfoot"><button class="btn" data-act="closeM">Cancelar</button><button class="btn dan" data-delok="'+id+'">Excluir</button></div>')}
@@ -685,26 +706,27 @@ function confirmBox(title,msg,okLabel,act){openModal('<h2>'+title+'</h2><p>'+msg
 
 /* ===== Importação / Exportação ===== */
 function recKey(r){return [r.date,r.code,r.model,r.problem,r.ng,r.re,r.local||'',r.turno||'',r.insp||'',r.operador||'',r.soldador||'',r.maquina||'',r.turnoOperador||'',r.turnoSoldador||'',r.turnoMaquina||'',r.obs||''].join('|')}
- function addImported(list,label,tabId){
+ function addImportedCore(list,label,tabId,existentes){
   tabId=tabId||'main';var kb={},add=[],dup=0,id=nextId(),perTab={},perMonth={};
-  list.forEach(function(r){var tb=(r._keep&&r.tabId)?r.tabId:tabId;delete r._keep;var keys=kb[tb]||(kb[tb]=(function(){var m={};recordsForTab(tb).forEach(function(x){m[recKey(x)]=1});return m})());
+  list.forEach(function(r){var tb=(r._keep&&r.tabId)?r.tabId:tabId;delete r._keep;var keys=kb[tb]||(kb[tb]=(function(){var m={};existentes.filter(function(x){return recordTabId(x)===tb}).forEach(function(x){m[recKey(x)]=1});return m})());
    var k=recKey(r);if(keys[k]){dup++;return}keys[k]=1;r.id=id++;r.tabId=tb;add.push(r);perTab[tb]=(perTab[tb]||0)+1;var mk=r.date.slice(5,7)+'/'+r.date.slice(0,4);perMonth[mk]=(perMonth[mk]||0)+1});
   var photoCount=add.filter(function(r){return !!r.photo}).length;
-  return save(add).then(function(){S.recs=S.recs.concat(add);render();
+  return save(add).then(function(){S.recs=S.recs.concat(add.filter(function(r){return inPeriodo(r.date)}));render();
    var months=Object.keys(perMonth).sort(function(a,b){return (a.slice(3)+a.slice(0,2))<(b.slice(3)+b.slice(0,2))?-1:1}).map(function(k){return '<li>'+k+': <b>'+nf(perMonth[k])+'</b> registro(s)</li>'}).join(''),tabs=Object.keys(perTab).map(function(k){return '<li>'+esc(tabName(k))+': <b>'+nf(perTab[k])+'</b></li>'}).join('');
    openModal('<h2>Importação concluída</h2><p>'+nf(add.length)+' registro(s) importado(s) de <b>'+esc(label)+'</b> e salvos no servidor.<br>'+nf(photoCount)+' foto(s) vinculada(s).<br>'+nf(dup)+' registro(s) duplicado(s) ignorado(s).</p>'+(tabs?'<p class="note"><b>Destino:</b></p><ul>'+tabs+'</ul>':'')+(months?'<p class="note"><b>Por mês:</b></p><ul>'+months+'</ul>':'')+'<div class="mfoot"><button class="btn pri" data-act="closeM">OK</button></div>')}).catch(function(e){console.error('Falha ao importar dados QC:',e);throw e})}
+ function addImported(list,label,tabId){var ds=list.map(function(r){return r.date}).filter(Boolean).sort();toast('Conferindo registros já existentes no banco…');return dbAllRange(ds.length?{de:ds[0],ate:ds[ds.length-1]}:null).then(function(ex){return addImportedCore(list,label,tabId,ex)})}
  function parseDate(v){
  if(v instanceof Date&&!isNaN(v)){return v.getFullYear()+'-'+('0'+(v.getMonth()+1)).slice(-2)+'-'+('0'+v.getDate()).slice(-2)}
  if(typeof v==='number'){var d=XLSX.SSF.parse_date_code(v);if(d)return d.y+'-'+('0'+d.m).slice(-2)+'-'+('0'+d.d).slice(-2)}
  var s=String(v||'').trim(),m;if((m=s.match(/^(\d{4})-(\d{2})-(\d{2})/)))return m[1]+'-'+m[2]+'-'+m[3];
  if((m=s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/)))return m[3]+'-'+('0'+m[2]).slice(-2)+'-'+('0'+m[1]).slice(-2);return null}
  function askImport(list,label,tabId,opt){
-  tabId=tabId||'main';S.pend={list:list,label:label,tabId:tabId,keep:opt&&opt.keep,pre:opt&&opt.pre};var existing=recordsForTab(tabId).length,tab=tabId==='main'?null:(S.regTabs||[]).filter(function(t){return t.id===tabId})[0];
-  openModal('<h2>Importar '+esc(label)+'</h2><p>'+nf(list.length)+' registro(s) lido(s) da planilha. As fotos inseridas como imagens na coluna “Foto do problema” serão associadas à linha correspondente.</p><p class="note"><b>Destino:</b> '+esc(tab?tab.name:'Registros principais')+'<br><b>Adicionar:</b> mantém os '+nf(existing)+' registros atuais desta aba e inclui só os que ainda não existem.<br><b>Substituir:</b> substitui somente os dados desta aba. As outras abas permanecem intactas.</p><div class="mfoot"><button class="btn" data-act="closeM">Cancelar</button><button class="btn" data-impmode="add">Adicionar à aba</button><button class="btn pri" data-impmode="replace">Substituir dados desta aba</button></div>')}
+  tabId=tabId||'main';S.pend={list:list,label:label,tabId:tabId,keep:opt&&opt.keep,pre:opt&&opt.pre};var existing=recordsForTab(tabId).length,dsI=list.map(function(r){return r.date}).filter(Boolean).sort(),faixa=dsI.length?fd(dsI[0])+' a '+fd(dsI[dsI.length-1]):'—',tab=tabId==='main'?null:(S.regTabs||[]).filter(function(t){return t.id===tabId})[0];
+  openModal('<h2>Importar '+esc(label)+'</h2><p>'+nf(list.length)+' registro(s) lido(s) da planilha. As fotos inseridas como imagens na coluna “Foto do problema” serão associadas à linha correspondente.</p><p class="note"><b>Destino:</b> '+esc(tab?tab.name:'Registros principais')+'<br><b>Adicionar:</b> mantém os registros atuais desta aba e inclui só os que ainda não existem.<br><b>Substituir:</b> apaga desta aba só os registros com datas de '+faixa+' (as datas da planilha) e grava os da planilha. Outras datas e outras abas permanecem intactas.</p><div class="mfoot"><button class="btn" data-act="closeM">Cancelar</button><button class="btn" data-impmode="add">Adicionar à aba</button><button class="btn pri" data-impmode="replace">Substituir dados desta aba</button></div>')}
  function doImport(mode){
   var p=S.pend;if(!p)return;S.pend=null;var tabId=p.tabId||'main';
   (p.pre?p.pre():Promise.resolve()).then(function(){
-   if(mode==='replace'){var clr=p.keep?Object.keys(p.list.reduce(function(m,r){m[r.tabId||'main']=1;return m},{})):[tabId],ids=[];clr.forEach(function(tb){recordsForTab(tb).forEach(function(r){ids.push(r.id)})});S.recs=S.recs.filter(function(r){return clr.indexOf(recordTabId(r))<0});return (memMode?Promise.resolve():dbDelMany(ids)).then(function(){return addImported(p.list,p.label,tabId)})}
+   if(mode==='replace'){var clr=p.keep?Object.keys(p.list.reduce(function(m,r){m[r.tabId||'main']=1;return m},{})):[tabId],ids=[];var ds=p.list.map(function(r){return r.date}).filter(Boolean).sort(),rg=ds.length?{de:ds[0],ate:ds[ds.length-1]}:null;S.recs=S.recs.filter(function(r){return !(clr.indexOf(recordTabId(r))>=0&&(!rg||(r.date>=rg.de&&r.date<=rg.ate)))});return idsDoBanco(clr,rg).then(dbDelMany).then(function(){return addImported(p.list,p.label,tabId)})}
    return addImported(p.list,p.label,tabId)}).catch(function(e){toast('Não foi possível importar os dados: '+e.message)})}
 function importFile(file,tabId){
  tabId=tabId||S.importTargetTab||S.activeTabId||'main';var rd=new FileReader(),isJson=/\.json$/i.test(file.name);
@@ -834,12 +856,12 @@ document.addEventListener('keydown',function(e){if(e.key==='Escape')closeModal()
   else if(a==='tabReportPrint')printTabReport(S.pendingActionTab||'main');
   else if(a==='tabReportXlsx')exportTabReportXlsx(S.pendingActionTab||'main');
   else if(a==='expCsv')download('qc_registros.csv',new Blob([csvOut(S.viewRecs||recordsForTab('main'))],{type:'text/csv;charset=utf-8'}));
-  else if(a==='expJson'||a==='expBackup')expBackup();
+  else if(a==='expJson'||a==='expBackup')comTudo(expBackup);
    else if(a==='expStd')expStd();
    else if(a==='expCsvS')expCsvStd(';');
    else if(a==='expCsvC')expCsvStd(',');
    else if(a==='expAna')expAna();
-   else if(a==='regAll')regAll();
+   else if(a==='regAll')comTudo(regAll);
    else if(a==='svXlsx')svSave(false);
    else if(a==='svCsv')svSave(true);
    else if(a==='svBook')svBook();
@@ -850,7 +872,7 @@ document.addEventListener('keydown',function(e){if(e.key==='Escape')closeModal()
    else if(a==='libXls')libImportXlsx();
   else if(a==='print')window.print();
   else if(a==='reseed')confirmBox('Recarregar dados da planilha','Isso substitui os registros principais, preservando as abas independentes. Continuar?','Substituir','reseedOk');
-  else if(a==='reseedOk'){var ids=recordsForTab('main').map(function(r){return r.id});S.recs=S.recs.filter(function(r){return recordTabId(r)!=='main'});S.recs=S.recs.concat(seedList());(memMode?Promise.resolve():dbDelMany(ids).then(function(){return dbPut(seedList())})).then(function(){closeModal();toast('Dados principais recarregados.');render()})}
+  else if(a==='reseedOk'){var ids=recordsForTab('main').map(function(r){return r.id});S.recs=S.recs.filter(function(r){return recordTabId(r)!=='main'});S.recs=S.recs.concat(seedList());(memMode?Promise.resolve():idsDoBanco(['main']).then(dbDelMany).then(function(){return dbPut(seedList())})).then(function(){closeModal();toast('Dados principais recarregados.');render()})}
   else if(a==='wipe')(isAdmin()?confirmBox:function(){toast('Somente o administrador pode apagar todos os dados.')})('Apagar todos os dados','Isso exclui TODOS os registros do sistema, para todos os usuários, inclusive os das abas criadas. Recomendamos exportar um backup antes. Esta ação não pode ser desfeita.','Apagar tudo','wipeOk');
   else if(a==='wipeOk'&&isAdmin()){S.recs=[];S.regTabs=[];(memMode?Promise.resolve():dbClear().then(function(){return dbSetMeta('regTabs',[])})).then(function(){closeModal();toast('Todos os dados foram apagados.');S.page='dash';S.activeTabId='main';render()})}
  }
@@ -863,10 +885,16 @@ document.addEventListener('keydown',function(e){if(e.key==='Escape')closeModal()
   $('#nav').innerHTML=nav;
   var rs=filtered(S.viewRecs),h='';
   var mb='<button class="btn menu-btn noprint" id="mb" style="margin-bottom:8px">☰ Menu</button> <button class="btn pri menu-btn noprint" data-act="impX" style="margin-bottom:8px">📂 IMPORTAR EXCEL</button>';
+  var pr=S.periodo||{tipo:'mes'},pv=S.perEdit?'custom':pr.tipo,pOpts=[['mes','Mês atual'],['3m','Últimos 3 meses'],['ano','Este ano'],['anoAnt','Ano anterior'],['custom','Personalizado'],['tudo','Tudo (pode demorar)']];
+  mb+='<div class="noprint" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 10px"><b style="font-size:13px">Período:</b><select id="perSel" style="width:auto">'+pOpts.map(function(o){return '<option value="'+o[0]+'"'+(o[0]===pv?' selected':'')+'>'+o[1]+'</option>'}).join('')+'</select>'
+   +(pv==='custom'?'<input type="date" id="perDe" value="'+((S.perEdit?(periodoRange()||{}).de:pr.de)||'')+'" style="width:auto"><input type="date" id="perAte" value="'+((S.perEdit?(periodoRange()||{}).ate:pr.ate)||'')+'" style="width:auto"><button class="btn sm" id="perOk">Aplicar</button>':'')
+   +'<span class="note">'+periodoTxt()+' · '+nf(S.recs.length)+' registro(s) carregado(s)</span></div>';
   if(current){h=pCustomTab(current,rs)}
   else switch(S.page){case 'dash':h=pDash(rs,'Dashboard',{consol:true});break;case 'reg':h=pReg(rs,{base:S.viewRecs});break;case 'pareto':h=pPareto(rs);break;case 'per':h=pPer(rs);break;case 'mes':h=pMes(rs);break;case 'rel':h=pRel(rs);break;case 'dados':h=pDados();break;case 'fotos':h=pFotos();break;case 'acessos':h=pAcessos();break}
   if(analytics)h='<div class="note" style="margin:0 0 10px">Fonte dos dados: todas as abas (consolidado) · '+nf(S.regTabs.length+1)+' abas incluídas.</div>'+h;var y=window.scrollY;document.getElementById('main').innerHTML=mb+h;window.scrollTo(0,y);
-  var m=$('#mb');if(m)m.onclick=function(){$('#side').classList.toggle('open')};i18n()}
+  var m=$('#mb');if(m)m.onclick=function(){$('#side').classList.toggle('open')};
+  var ps=$('#perSel');if(ps)ps.onchange=function(){if(ps.value==='custom'){S.perEdit=true;render();return}setPeriodo({tipo:ps.value})};
+  var po=$('#perOk');if(po)po.onclick=function(){var de=$('#perDe').value,ate=$('#perAte').value;if(!de||!ate||de>ate){toast('Informe as duas datas, com o início antes do fim.');return}setPeriodo({tipo:'custom',de:de,ate:ate})};i18n()}
 
 /* ===== Idiomas, login e acessos ===== */
 var LG=['pt','en','es','ko'],D={},USER=null,MEM={};
@@ -1008,7 +1036,7 @@ function pFotos(){var q=norm(S.fq||''),l=(S.fotos||[]).filter(function(f){return
 /* ===== Início ===== */
  function boot(){
   $('#main').innerHTML='<div class="empty">Carregando…</div>';
-  S.recs=[];S.regTabs=[];S.fotos=[];S.viewRecs=[];S.ready=true;S.activeTabId='main';startAuth()}
+  S.recs=[];S.regTabs=[];S.fotos=[];S.viewRecs=[];S.ready=true;S.activeTabId='main';S.periodo=lerPeriodo();startAuth()}
 window.GP12={importFile:importFile,S:S,filtered:filtered,pareto:pareto,series:series,sum:sum};
 boot();
 })();
