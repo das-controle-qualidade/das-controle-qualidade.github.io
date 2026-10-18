@@ -1,0 +1,7 @@
+# Cópia original do arquivo (mantida só no computador)
+Downloads GitHub/
+
+# Backups e planilhas exportadas não devem ir para o GitHub público
+*.xlsx
+*.csv
+*.json
