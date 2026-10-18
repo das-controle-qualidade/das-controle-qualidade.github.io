@@ -346,12 +346,12 @@ function usoCard(){if(!S.uso){loadUso();return '<div class="card"><h3>Uso de fot
   +'<div style="height:10px;border-radius:5px;background:var(--card);border:1px solid var(--line);overflow:hidden"><div style="width:'+Math.min(100,pct).toFixed(2)+'%;min-width:4px;height:100%;background:'+cor+'"></div></div>'
   +'<p class="note" style="margin-top:8px">Cabem ainda cerca de <b>'+nf(cabem)+'</b> foto(s) no ritmo atual. Atualizado às '+u.em.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})+'.</p></div>'}
 /* Último backup completo (salvo no banco, vale para todos) */
-function backupCard(){var b=S.ultimoBackup,dias=b&&b.em?Math.floor((Date.now()-new Date(b.em).getTime())/86400000):null,atrasado=dias===null||dias>30;
+function backupCard(){var b=S.ultimoBackup,dias=b&&b.em?Math.floor((Date.now()-new Date(b.em).getTime())/86400000):null,atrasado=dias===null||dias>60;
  return '<div class="card" style="border-color:'+(atrasado?'var(--ng)':'var(--line)')+'"><h3>Último backup completo</h3><p class="note">'
   +(b&&b.em?'Feito em <b>'+new Date(b.em).toLocaleString('pt-BR')+'</b>'+(b.por?' por '+esc(b.por):'')+' ('+(dias===0?'hoje':dias===1?'há 1 dia':'há '+dias+' dias')+').':'Nenhum backup completo registrado ainda.')
-  +(atrasado?' <b style="color:var(--ng)">Faça um backup completo (.json) e guarde em dois lugares (ex.: Google Drive e pendrive).</b>':' Recomendado: um backup por mês, guardado em dois lugares.')
+  +(atrasado?' <b style="color:var(--ng)">Faça um backup completo (.json) e guarde em dois lugares (ex.: Google Drive e pendrive).</b>':' Próximo backup recomendado em '+new Date(new Date(b.em).getTime()+60*86400000).toLocaleDateString('pt-BR')+' (a cada 2 meses), guardado em dois lugares.')
   +'</p><button class="btn pri" data-act="expBackup">Fazer backup completo agora (.json)</button></div>'}
-function avisoBackup(){if(!isAdmin())return;var b=S.ultimoBackup,dias=b&&b.em?Math.floor((Date.now()-new Date(b.em).getTime())/86400000):null;if(dias===null||dias>30)setTimeout(function(){toast(dias===null?'Nenhum backup completo foi feito ainda. Vá em Dados & Backup.':'Último backup completo há '+dias+' dias. Vá em Dados & Backup.')},1500)}
+function avisoBackup(){if(!isAdmin())return;var b=S.ultimoBackup,dias=b&&b.em?Math.floor((Date.now()-new Date(b.em).getTime())/86400000):null;if(dias===null||dias>60)setTimeout(function(){toast(dias===null?'Nenhum backup completo foi feito ainda. Vá em Dados & Backup.':'Último backup completo há '+dias+' dias. Vá em Dados & Backup.')},1500)}
 
 /* Carrega tudo depois do login (o banco só responde para quem está logado) */
 function loadData(){$('#main').innerHTML='<div class="empty">Carregando dados…</div>';
