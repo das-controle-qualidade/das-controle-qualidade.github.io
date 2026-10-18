@@ -5,3 +5,6 @@ Downloads GitHub/
 *.xlsx
 *.csv
 *.json
+
+# Configuração local do Claude
+.claude/
