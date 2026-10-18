@@ -2,6 +2,8 @@
 
 Sistema web para registro e análise de controle de qualidade, feito em um único arquivo HTML.
 
+**Acesse:** https://das-controle-qualidade.github.io/
+
 ## Funcionalidades
 
 - Dashboard com indicadores
