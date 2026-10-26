@@ -287,7 +287,7 @@ tr.click{cursor:pointer}tr.click:hover td{background:var(--soft)}
 'use strict';
 var MESES=['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
 var MS=['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
-var PAGES=[['dash','Dashboard'],['reg','Registros'],['pareto','Pareto & Rankings'],['per','Análises por período'],['mes','Visão por mês'],['rel','Relatório Executivo'],['fotos','Fotos dos Problemas'],['dados','Dados & Backup']];
+var PAGES=[['dash','Dashboard'],['reg','Registros'],['pareto','Pareto & Rankings'],['per','Análises por período'],['mes','Visão por mês'],['rel','Relatório Executivo'],['fotos','Fotos dos Problemas'],['custos','Gestão de Custos'],['dados','Dados & Backup']];
 var S={recs:[],regTabs:[],viewRecs:[],activeTabId:'main',importTargetTab:'main',page:'dash',pg:1,sort:{k:'date',d:-1},f:{},showF:false,gran:'month',pmetric:'tot',pgroup:'problem',mesSel:0,perGran:'day',cmpGran:'month',reportDates:{},ready:false};
 var $=function(s,e){return (e||document).querySelector(s)};
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
@@ -309,7 +309,12 @@ function upFoto(path,data){var bl=dataBlob(data);return sb.storage.from('fotos')
 function newFotoPath(id){return 'reg/'+id+'-'+Date.now().toString(36)+Math.random().toString(36).slice(2,5)+'.jpg'}
 function signFotos(paths){paths=paths.filter(function(p,i){return p&&paths.indexOf(p)===i});var out={},jobs=[];for(var i=0;i<paths.length;i+=500)jobs.push(sb.storage.from('fotos').createSignedUrls(paths.slice(i,i+500),FOTO_SEG).then(sbErr).then(function(r){(r.data||[]).forEach(function(x){if(x.signedUrl)out[x.path]=x.signedUrl})}));return Promise.all(jobs).then(function(){return out})}
 function seqMap(list,fn){var out=[],i=0;function next(){if(i>=list.length)return Promise.resolve();var k=i++;return fn(list[k]).then(function(v){out[k]=v;return next()})}return Promise.all([next(),next(),next(),next()]).then(function(){return out})}
-function fromRows(rows){var recs=rows.map(function(w){var r=Object.assign({},w.dados);r.id=+w.id;r.tabId=r.tabId||w.tab_id||'main';return r});return signFotos(recs.reduce(function(a,r){a.push(fotoPath(r.photo),fotoPath(r.photoMini));return a},[])).then(function(urls){recs.forEach(function(r){var p=fotoPath(r.photo),m=fotoPath(r.photoMini);r.photo=p?(urls[p]||''):(r.photo||'');r.photoMini=m?(urls[m]||''):''});return recs})}
+function fromRows(rows){var recs=rows.map(function(w){var r=Object.assign({},w.dados);r.id=+w.id;r.tabId=r.tabId||w.tab_id||'main';return r});return signFotos(recs.reduce(function(a,r){a.push(fotoPath(r.photo),fotoPath(r.photoMini),fotoPath(r.photoBalanca));return a},[])).then(function(urls){recs.forEach(function(r){var p=fotoPath(r.photo),m=fotoPath(r.photoMini),b=fotoPath(r.photoBalanca);r.photo=p?(urls[p]||''):(r.photo||'');r.photoMini=m?(urls[m]||''):'';r.photoBalanca=b?(urls[b]||''):(r.photoBalanca||'')});return recs})}
+/* Foto da caixa na balança: arquivo próprio em bal/, separado da foto do problema (reg/) */
+function balJob(r){var ph=r.photoBalanca||'',p=fotoPath(ph),np='bal/'+r.id+'-'+Date.now().toString(36)+Math.random().toString(36).slice(2,5)+'.jpg';
+ if(/^data:image\//i.test(ph))return upFoto(np,ph);
+ if(p&&(p.indexOf('bal/')!==0||p.indexOf('bal/'+r.id+'-')!==0))return sb.storage.from('fotos').copy(p,np).then(sbErr).then(function(){return np});/* cópia própria do registro */
+ return Promise.resolve(p||'')}
 /* Miniatura 160x120 (~4 KB) usada na lista; a foto inteira só é baixada ao ampliar */
 function makeMini(srcUrl){return new Promise(function(res,rej){var im=new Image();im.crossOrigin='anonymous';im.onload=function(){try{var W=160,H=120,k=Math.max(W/im.width,H/im.height),sw=W/k,sh=H/k,c=document.createElement('canvas');c.width=W;c.height=H;c.getContext('2d').drawImage(im,(im.width-sw)/2,(im.height-sh)/2,sw,sh,0,0,W,H);res(c.toDataURL('image/jpeg',.7))}catch(e){rej(e)}};im.onerror=function(){rej(new Error('Não foi possível gerar a miniatura'))};im.src=srcUrl})}
 function toRow(r){var d=Object.assign({},r),ph=r.photo||'',p=fotoPath(ph),mp=fotoPath(r.photoMini),job;
@@ -317,7 +322,7 @@ function toRow(r){var d=Object.assign({},r),ph=r.photo||'',p=fotoPath(ph),mp=fot
  else if(p&&(p.indexOf('galeria/')===0||(p.indexOf('reg/')===0&&p.indexOf('reg/'+r.id+'-')!==0))){var np=newFotoPath(r.id);job=sb.storage.from('fotos').copy(p,np).then(sbErr).then(function(){return {fp:np,src:ph}})}/* cópia própria do registro */
  else job=Promise.resolve({fp:p,src:ph,mp:(p&&mp&&mp.indexOf('mini/')===0)?mp:null});
  return job.then(function(o){if(!o.fp||o.mp)return o;var m='mini/'+o.fp.split('/').pop();return makeMini(o.src).then(function(md){return upFoto(m,md)}).then(function(){o.mp=m;return o},function(){o.mp=null;return o})})
- .then(function(o){d.photo=o.fp?'sb:'+o.fp:'';d.photoMini=o.mp?'sb:'+o.mp:'';d.id=r.id;return {id:r.id,tab_id:recordTabId(r),dados:d}})}
+ .then(function(o){return balJob(r).then(function(bp){d.photo=o.fp?'sb:'+o.fp:'';d.photoMini=o.mp?'sb:'+o.mp:'';d.photoBalanca=bp?'sb:'+bp:'';d.id=r.id;return {id:r.id,tab_id:recordTabId(r),dados:d}})})}
 /* Modo por período: o sistema carrega só as datas escolhidas (padrão: mês atual) */
 function hojeISO(d){d=d||new Date();return d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2)}
 function lerPeriodo(){var p=null;try{p=JSON.parse(localStorage.getItem('qc_periodo')||'null')}catch(e){}return p&&p.tipo?p:{tipo:'mes'}}
@@ -341,8 +346,9 @@ function idsDoBanco(tabs,rg){var ids=[];function page(from){var x=sb.from('regis
 /* Backup completo e "Registrar tudo": usam todos os registros do banco, não só o período */
 function comTudo(fn){toast('Buscando todos os registros do banco…');return dbAllRange(null,function(d,t){if(t>3)toast('Buscando registros… '+Math.round(d/t*100)+'%')}).then(function(all){var keep=S.recs;S.recs=all;try{fn()}finally{S.recs=keep}}).catch(function(e){toast('Não foi possível buscar todos os registros: '+((e&&e.message)||'erro de conexão'))})}
 function dbPut(list){return seqMap(list,toRow).then(function(rows){var p=Promise.resolve();for(var i=0;i<rows.length;i+=500)(function(chunk){p=p.then(function(){return sb.from('registros').upsert(chunk).then(sbErr)})})(rows.slice(i,i+500));return p})}
-function rmRecFotos(ids){return sb.from('registros').select('foto:dados->>photo,mini:dados->>photoMini').in('id',ids).then(function(r){var ps=[];(r.data||[]).forEach(function(x){ps.push(fotoPath(x.foto),fotoPath(x.mini))});ps=ps.filter(function(p){return p&&(p.indexOf('reg/')===0||p.indexOf('mini/')===0)});return ps.length?sb.storage.from('fotos').remove(ps):null}).catch(function(){})}
-function dbDelMany(ids){var p=Promise.resolve();for(var i=0;i<ids.length;i+=200)(function(chunk){p=p.then(function(){return rmRecFotos(chunk)}).then(function(){return sb.from('registros').delete().in('id',chunk).then(sbErr)})})(ids.slice(i,i+200));return p}
+function recFotoPaths(ids){return sb.from('registros').select('foto:dados->>photo,mini:dados->>photoMini,bal:dados->>photoBalanca').in('id',ids).then(function(r){var ps=[];(r.data||[]).forEach(function(x){ps.push(fotoPath(x.foto),fotoPath(x.mini),fotoPath(x.bal))});return ps.filter(function(p){return p&&(p.indexOf('reg/')===0||p.indexOf('mini/')===0||p.indexOf('bal/')===0)})}).catch(function(){return []})}
+/* As fotos só são apagadas depois que o banco aceitou excluir o registro (ex.: mês fechado recusa) */
+function dbDelMany(ids){var p=Promise.resolve();for(var i=0;i<ids.length;i+=200)(function(chunk){p=p.then(function(){return recFotoPaths(chunk)}).then(function(ps){return sb.from('registros').delete().in('id',chunk).then(sbErr).then(function(){return ps.length?sb.storage.from('fotos').remove(ps).catch(function(){}):null})})})(ids.slice(i,i+200));return p}
 function dbDel(id){return dbDelMany([id])}
 function dbClear(){var ids=[];function page(from){return sb.from('registros').select('id').order('id').range(from,from+999).then(sbErr).then(function(r){var l=r.data||[];l.forEach(function(x){ids.push(+x.id)});return l.length===1000?page(from+1000):ids})}return page(0).then(dbDelMany)}
 function dbMeta(k){return sb.from('config').select('valor').eq('chave',k).maybeSingle().then(sbErr).then(function(r){var v=r.data?r.data.valor:null;if(k.indexOf('foto:')!==0)return v;var p=v&&v.path;return p?signFotos([p]).then(function(u){return u[p]||null}):null})}
@@ -386,7 +392,7 @@ function avisoBackup(){if(!isAdmin())return;var b=S.ultimoBackup,dias=b&&b.em?Ma
 /* Carrega tudo depois do login (o banco só responde para quem está logado) */
 function loadData(){$('#main').innerHTML='<div class="empty">Carregando dados…</div>';
  return dbOpen().then(dbAll).then(function(list){var fix=[];list.forEach(function(r){if(!r.tabId){r.tabId='main';fix.push(r)}});S.recs=list;return fix.length?dbPut(fix):null})
- .then(function(){return mget('regTabs')}).then(function(tabs){S.regTabs=Array.isArray(tabs)?tabs:[]}).then(function(){return loadFotoIdx()}).then(function(){return mget('ultimoBackup')}).then(function(b){S.ultimoBackup=b||null;S.uso=null})
+ .then(function(){return mget('regTabs')}).then(function(tabs){S.regTabs=Array.isArray(tabs)?tabs:[]}).then(function(){return loadFotoIdx()}).then(function(){return mget('ultimoBackup')}).then(function(b){S.ultimoBackup=b||null;S.uso=null}).then(loadCustos)
  .then(function(){S.viewRecs=recordsForTab(S.activeTabId||'main');startRealtime();avisoBackup()})
  .catch(function(e){toast('Não foi possível carregar os dados: '+((e&&e.message)||'verifique a internet'));throw e})}
 
@@ -491,10 +497,10 @@ function modelRank(rs,metric,n){return pareto(rs,function(r){return r.model+' ['
 function filterUI(){
  var f=S.f;function sel(k,lab,opts,fmt){return '<label>'+lab+'<select data-f="'+k+'"><option value="">Todos</option>'+opts.map(function(o){var v=Array.isArray(o)?o[0]:o,t=Array.isArray(o)?o[1]:o;return '<option value="'+esc(v)+'"'+(String(f[k])===String(v)?' selected':'')+'>'+esc(t)+'</option>'}).join('')+'</select></label>'}
  function inp(k,lab,type,ph){return '<label>'+lab+'<input data-f="'+k+'" type="'+type+'" value="'+esc(f[k]||'')+'" '+(ph?'placeholder="'+ph+'"':'')+'></label>'}
- var anos=[];(S.viewRecs||recordsForTab('main')).forEach(function(r){var y=r.date.slice(0,4);if(anos.indexOf(y)<0)anos.push(y)});anos.sort();
+ var anos=[];(S.viewRecs||recordsForTab('main')).forEach(function(r){var y=r.date.slice(0,4);if(anos.indexOf(y)<0)anos.push(y)});for(var ya=new Date().getFullYear(),yi=ya-4;yi<=ya;yi++)if(anos.indexOf(String(yi))<0)anos.push(String(yi));anos.sort();
  var dias=[];for(var i=1;i<=31;i++)dias.push([i,i]);
  var h='<div class="card noprint"><div class="bar" style="margin-bottom:'+(S.showF?10:0)+'px"><input class="search" id="q" type="text" placeholder="PESQUISAR… (código, modelo, problema, data, Scrap, Rework)" value="'+esc(f.q||'')+'">'
-  +'<button class="btn" data-act="toggleF">'+(S.showF?'Ocultar filtros':'Filtros avançados')+'</button><button class="btn" data-act="clearF">Limpar filtros</button></div>';
+  +'<button class="btn" data-act="toggleF">'+(S.showF?'Ocultar filtros':'Filtros avançados')+'</button><button class="btn" data-act="clearF">Limpar filtros</button></div><div class="note" style="margin:-4px 0 '+(S.showF?8:0)+'px">Dados carregados: '+esc(periodoTxt())+'. Ao filtrar por data, mês ou ano, o sistema busca esse período no banco.</div>';
  if(S.showF){h+='<div class="flt">'+inp('d1','Data inicial','date')+inp('d2','Data final','date')
   +sel('ano','Ano',anos)+sel('mes','Mês',MESES.map(function(m,i){return [i+1,m]}))+sel('sem','Semana do mês',[1,2,3,4,5].map(function(w){return [w,'Semana '+w]}))+sel('dia','Dia',dias)
   +sel('code','Código',uniq('code'))+sel('model','Modelo',uniq('model'))+sel('problem','Problema',uniq('problem'))
@@ -526,7 +532,7 @@ function periodTable(rs,g){
   +(opt&&opt.consol?dashSrcBar():'')+filterUI()+kpis(rs)
   +'<div class="card"><h3>Problemas encontrados — Scrap x Rework</h3>'+granTabs('gran',S.gran)+legend()+barChart(serData(rs,S.gran),{mode:'group',h:270})+'</div>'
   +'<div class="grid2"><div class="card"><h3>Pareto dos problemas (Scrap + Rework)</h3>'+paretoChart(pr.rows)+'</div>'
-  +'<div class="card"><h3>Top 5 problemas</h3>'+hbars(pr.rows.slice(0,5).map(function(o){return {k:o.k,v:o.v}}),'var(--pri)')+'<h3 style="margin-top:16px">Top 5 modelos (Scrap + Rework)</h3>'+hbars(modelRank(rs,'tot',5),'var(--pri2)')+'</div></div>'+pEquipe(rs)}
+  +'<div class="card"><h3>Top 5 problemas</h3>'+hbars(pr.rows.slice(0,5).map(function(o){return {k:o.k,v:o.v}}),'var(--pri)')+'<h3 style="margin-top:16px">Top 5 modelos (Scrap + Rework)</h3>'+hbars(modelRank(rs,'tot',5),'var(--pri2)')+'</div></div>'+pIndicadores(rs)+pEquipe(rs)}
 
 /* ===== Análise por Máquina, Inspetor, Operador, Soldador e Turno ===== */
 function titleCase(v){return v===v.toLowerCase()?v.replace(/(^|\s)(\S)/g,function(m,a,b){return a+b.toUpperCase()}):v}
@@ -570,8 +576,8 @@ function pEquipe(rs){
   if(!opts.noFilter)h+=filterUI();
   h+='<div class="bar noprint"><button class="btn" data-act="dup">Duplicar</button><button class="btn" data-act="expF">Exportar dados filtrados</button><button class="btn" data-act="expCurrent">Exportar Excel (esta aba)</button>'+(tabId?'':'<button class="btn" data-act="impX">Importar Excel</button>')+'<span class="note">Clique no cabeçalho para ordenar · selecione uma linha (●) para duplicar</span></div>'+svBox();
   h+=reportPanel(tabId||'main');
-  h+=(sl.length?'<div class="tw"><table><thead><tr><th></th><th>ID</th>'+th('date','Data')+'<th>Foto do problema</th>'+th('code','Código')+th('model','Modelo')+th('problem','Problema')+th('local','Local de inspeção')+th('tipo','Tipo')+th('ng','Scrap','n')+th('re','Rework','n')+th('tot','Qtd','n')+th('turno','Turno')+th('insp','Inspetor')+th('turnoOperador','Turno')+th('operador','Operador')+th('turnoSoldador','Turno')+th('soldador','Soldador')+th('turnoMaquina','Turno')+th('maquina','Máquina')+th('obs','Obs.')+'<th>Ações</th></tr></thead><tbody>'
-  +sl.map(function(r){var t=tipoOf(r);return '<tr><td><input type="radio" name="sel" value="'+r.id+'"'+(S.sel===r.id?' checked':'')+'></td><td>'+r.id+'</td><td>'+fd(r.date)+'</td><td>'+(r.photo?'<img class="thumb" data-photo="'+r.id+'" src="'+(r.photoMini||r.photo)+'" loading="lazy">':'—')+'</td><td>'+esc(r.code)+'</td><td class="wrap">'+esc(r.model)+'</td><td class="wrap">'+esc(r.problem)+'</td><td class="wrap">'+esc(r.local)+'</td><td><span class="chip '+(t==='NG'?'ng':t==='RE'?'re':'both')+'">'+esc(tipoLabel(t))+'</span></td><td class="ngc">'+nf(r.ng)+'</td><td class="rec">'+nf(r.re)+'</td><td class="n">'+nf(r.ng+r.re)+'</td><td>'+esc(r.turno)+'</td><td class="wrap">'+esc(r.insp)+'</td><td>'+esc(r.turnoOperador)+'</td><td class="wrap">'+esc(r.operador)+'</td><td>'+esc(r.turnoSoldador)+'</td><td class="wrap">'+esc(r.soldador)+'</td><td>'+esc(r.turnoMaquina)+'</td><td class="wrap">'+esc(r.maquina)+'</td><td class="wrap">'+esc(r.obs)+'</td><td><button class="btn sm" data-edit="'+r.id+'">Editar</button> <button class="btn sm" data-del="'+r.id+'">Excluir</button></td></tr>'}).join('')+'</tbody></table></div>'
+  h+=(sl.length?'<div class="tw"><table><thead><tr><th></th><th>ID</th>'+th('date','Data')+'<th>Foto do problema</th><th>Foto da balança</th>'+th('code','Código')+th('model','Modelo')+th('problem','Problema')+th('local','Local de inspeção')+th('tipo','Tipo')+th('ng','Scrap','n')+th('re','Rework','n')+th('tot','Qtd','n')+th('custoUnit','Custo unit.','n')+th('prejuizo','Prejuízo','n')+th('turno','Turno')+th('insp','Inspetor')+th('turnoOperador','Turno')+th('operador','Operador')+th('turnoSoldador','Turno')+th('soldador','Soldador')+th('turnoMaquina','Turno')+th('maquina','Máquina')+th('obs','Obs.')+'<th>Ações</th></tr></thead><tbody>'
+  +sl.map(function(r){var t=tipoOf(r);return '<tr><td><input type="radio" name="sel" value="'+r.id+'"'+(S.sel===r.id?' checked':'')+'></td><td>'+r.id+'</td><td>'+fd(r.date)+'</td><td>'+(r.photo?'<img class="thumb" data-photo="'+r.id+'" src="'+(r.photoMini||r.photo)+'" loading="lazy">':'—')+'</td><td>'+(r.photoBalanca?'<img class="thumb" data-photo="'+r.id+'" data-qual="bal" src="'+r.photoBalanca+'" loading="lazy">':'—')+'</td><td>'+esc(r.code)+'</td><td class="wrap">'+esc(r.model)+'</td><td class="wrap">'+esc(r.problem)+'</td><td class="wrap">'+esc(r.local)+'</td><td><span class="chip '+(t==='NG'?'ng':t==='RE'?'re':'both')+'">'+esc(tipoLabel(t))+'</span></td><td class="ngc">'+nf(r.ng)+'</td><td class="rec">'+nf(r.re)+'</td><td class="n">'+nf(r.ng+r.re)+'</td><td class="n">'+(temCusto(r)?brl(r.custoUnit):(r.ng>0?'<span class="chip ng" title="Sem custo válido para a data">sem custo</span>':'—'))+'</td><td class="n">'+(temCusto(r)?brl(prejuizoDe(r)):'—')+'</td><td>'+esc(r.turno)+'</td><td class="wrap">'+esc(r.insp)+'</td><td>'+esc(r.turnoOperador)+'</td><td class="wrap">'+esc(r.operador)+'</td><td>'+esc(r.turnoSoldador)+'</td><td class="wrap">'+esc(r.soldador)+'</td><td>'+esc(r.turnoMaquina)+'</td><td class="wrap">'+esc(r.maquina)+'</td><td class="wrap">'+esc(r.obs)+'</td><td><button class="btn sm" data-edit="'+r.id+'">Editar</button> <button class="btn sm" data-del="'+r.id+'">Excluir</button></td></tr>'}).join('')+'</tbody></table></div>'
   :'<div class="empty card">Nenhum registro para os filtros selecionados.</div>');
   return h+'<div class="pager noprint"><button class="btn sm" data-pg="-1"'+(S.pg<=1?' disabled':'')+'>‹ Anterior</button><span>Página '+S.pg+' de '+pages+'</span><button class="btn sm" data-pg="1"'+(S.pg>=pages?' disabled':'')+'>Próxima ›</button></div>'}
 
@@ -665,7 +671,7 @@ function detail(kind,v){
 function openModal(html,wide){$('#modals').innerHTML='<div class="modal-bg" id="mbg"><div class="modal'+(wide?' wide':'')+'">'+html+'</div></div>';i18n()}
 function closeModal(){$('#modals').innerHTML='';if(S.rtPending&&USER){S.rtPending=false;setTimeout(render,0)}}
 function formModal(r){
- var isNew=!r;S.photo=r?(r.photo||''):'';r=r||{date:new Date().toISOString().slice(0,10),code:'',model:'',problem:'',ng:0,re:0,turno:'',insp:'',local:'',obs:'',tabId:S.activeTabId||'main'};
+ var isNew=!r;S.photo=r?(r.photo||''):'';S.photoBal=r?(r.photoBalanca||''):'';S.formOld=r||null;r=r||{date:hojeISO(),code:'',model:'',problem:'',ng:0,re:0,turno:'',insp:'',local:'',obs:'',tabId:S.activeTabId||'main'};
  var t=tipoOf(r);if(t==='—')t='NG';
  function dl(id,k){return '<datalist id="'+id+'">'+uniq(k).map(function(x){return '<option value="'+esc(x)+'">'}).join('')+'</datalist>'}
  openModal('<h2>'+(isNew?'Novo registro':'Editar registro #'+r.id)+'</h2><div class="frm" id="frm" data-id="'+(isNew?'':r.id)+'">'
@@ -674,9 +680,11 @@ function formModal(r){
  +'<label>Código<input type="text" id="f_code" list="dl_code" value="'+esc(r.code)+'"></label>'
  +'<label>Descrição do modelo<input type="text" id="f_model" list="dl_model" value="'+esc(r.model)+'"></label>'
  +'<label class="full">Descrição do problema *<input type="text" id="f_problem" list="dl_prob" value="'+esc(r.problem)+'"></label>'
- +'<label class="full">Local de inspeção (setor)<input type="text" id="f_local" list="dl_local" value="'+esc(r.local)+'"></label>'+'<div class="full"><label>Foto do problema<input type="file" id="f_photo" accept="image/*"></label><div class="bar" style="margin-top:6px"><button type="button" class="btn sm" data-act="libToggle">🖼 Escolher da biblioteca de fotos</button></div><div id="libBox" style="display:none"></div><div id="prevBox"></div></div>'+'<label id="l_ng">Scrap<input type="number" id="f_ng" min="0" value="'+r.ng+'"></label>'
+ +'<label class="full">Local de inspeção (setor)<input type="text" id="f_local" list="dl_local" value="'+esc(r.local)+'"></label>'+'<div class="full"><label>Foto do problema<input type="file" id="f_photo" accept="image/*"></label><div class="bar" style="margin-top:6px"><button type="button" class="btn sm" data-act="libToggle">🖼 Escolher da biblioteca de fotos</button></div><div id="libBox" style="display:none"></div><div id="prevBox"></div></div>'
+  +'<div class="full"><label>Foto da Caixa na Balança'+(exigeBalanca()?' * (obrigatória quando houver Scrap)':'')+'</label><div class="bar" style="margin-top:6px"><button type="button" class="btn sm" data-act="balCam">📷 Tirar foto</button><button type="button" class="btn sm" data-act="balArq">📎 Anexar imagem</button><input type="file" id="f_bal_cam" accept="image/*" capture="environment" style="display:none"><input type="file" id="f_bal" accept="image/*" style="display:none"></div><div id="balBox"></div><div class="note">Foto da caixa pesada na balança. Fica separada da foto do problema e vinculada a este registro.</div></div>'+'<label id="l_ng">Scrap<input type="number" id="f_ng" min="0" value="'+r.ng+'"></label>'
  +'<label id="l_re">Rework<input type="number" id="f_re" min="0" value="'+r.re+'"></label>'
  +'<label>Quantidade (Scrap + Rework)<input type="number" id="f_qtd" readonly value="'+(r.ng+r.re)+'"></label>'
+ +'<div class="full" id="custoBox"></div>'
  +'<label>Turno do Inspetor<input type="text" id="f_turno" value="'+esc(r.turno)+'"></label>'
  +'<label>Inspetor<input type="text" id="f_insp" value="'+esc(r.insp)+'"></label>'
  +'<label>Turno do Operador<input type="text" id="f_turnoOperador" value="'+esc(r.turnoOperador||'')+'"></label>'
@@ -688,8 +696,8 @@ function formModal(r){
  +'<label class="full">Observação<textarea id="f_obs" rows="2">'+esc(r.obs)+'</textarea></label>'
  +'</div>'+dl('dl_code','code')+dl('dl_model','model')+dl('dl_prob','problem')+dl('dl_local','local')
  +'<div class="mfoot"><button class="btn" data-act="closeM">Cancelar</button><button class="btn pri" data-act="saveForm">Salvar alterações</button></div>');
- syncForm();showPrev()}
-function syncForm(){var t=$('#f_tipo');if(!t)return;var v=t.value;$('#l_ng').style.display=v==='RE'?'none':'';$('#l_re').style.display=v==='NG'?'none':'';
+ syncForm();showPrev();showBal()}
+function syncForm(){var t=$('#f_tipo');if(!t)return;setTimeout(custoInfo,0);var v=t.value;$('#l_ng').style.display=v==='RE'?'none':'';$('#l_re').style.display=v==='NG'?'none':'';
  var ng=v==='RE'?0:+$('#f_ng').value||0,re=v==='NG'?0:+$('#f_re').value||0;$('#f_qtd').value=ng+re}
 function saveForm(){
  var id=$('#frm').getAttribute('data-id'),t=$('#f_tipo').value;
@@ -697,7 +705,10 @@ function saveForm(){
  if(!date||!prob){toast('Informe ao menos a data e a descrição do problema.');return}
  var ng=t==='RE'?0:Math.max(0,+$('#f_ng').value||0),re=t==='NG'?0:Math.max(0,+$('#f_re').value||0);
  var oldRec=id?S.recs.filter(function(r){return r.id===+id})[0]:null;
- var rec={id:id?+id:nextId(),tabId:oldRec?recordTabId(oldRec):(S.activeTabId||'main'),date:date,code:$('#f_code').value.trim(),model:$('#f_model').value.trim(),problem:prob,ng:ng,re:re,turno:$('#f_turno').value.trim(),insp:$('#f_insp').value.trim(),operador:$('#f_operador').value.trim(),turnoOperador:$('#f_turnoOperador').value.trim(),turnoSoldador:$('#f_turnoSoldador').value.trim(),turnoMaquina:$('#f_turnoMaquina').value.trim(),maquina:$('#f_maquina').value.trim(),soldador:$('#f_soldador').value.trim(),local:$('#f_local').value.trim(),photo:S.photo||'',obs:$('#f_obs').value.trim()};
+ var rec={id:id?+id:nextId(),tabId:oldRec?recordTabId(oldRec):(S.activeTabId||'main'),date:date,code:$('#f_code').value.trim(),model:$('#f_model').value.trim(),problem:prob,ng:ng,re:re,turno:$('#f_turno').value.trim(),insp:$('#f_insp').value.trim(),operador:$('#f_operador').value.trim(),turnoOperador:$('#f_turnoOperador').value.trim(),turnoSoldador:$('#f_turnoSoldador').value.trim(),turnoMaquina:$('#f_turnoMaquina').value.trim(),maquina:$('#f_maquina').value.trim(),soldador:$('#f_soldador').value.trim(),local:$('#f_local').value.trim(),photo:S.photo||'',photoBalanca:S.photoBal||'',obs:$('#f_obs').value.trim()};
+ if(mesFechado(rec.date)||(oldRec&&mesFechado(oldRec.date))){toast(msgFechado(mesFechado(rec.date)?rec.date:oldRec.date));return}
+ if(exigeBalanca()&&rec.ng>0&&!rec.photoBalanca){toast('Anexe a Foto da Caixa na Balança: ela é obrigatória para registros com Scrap.');return}
+ aplicarCusto(rec,oldRec);
  save([rec]).then(function(){if(id){S.recs=S.recs.map(function(r){return r.id===rec.id?rec:r})}else S.recs.push(rec);closeModal();if(!inPeriodo(rec.date)){S.recs=S.recs.filter(function(r){return r.id!==rec.id});toast('Registro salvo. A data '+fd(rec.date)+' está fora do período exibido ('+periodoTxt()+').')}else toast(id?'Registro atualizado e salvo.':'Registro adicionado e salvo.');render()}).catch(function(e){console.error('Falha ao salvar registro QC:',e)})}
 function confirmDel(id){
  var r=S.recs.filter(function(x){return x.id===id})[0];if(!r)return;
@@ -707,13 +718,13 @@ function confirmBox(title,msg,okLabel,act){openModal('<h2>'+title+'</h2><p>'+msg
 /* ===== Importação / Exportação ===== */
 function recKey(r){return [r.date,r.code,r.model,r.problem,r.ng,r.re,r.local||'',r.turno||'',r.insp||'',r.operador||'',r.soldador||'',r.maquina||'',r.turnoOperador||'',r.turnoSoldador||'',r.turnoMaquina||'',r.obs||''].join('|')}
  function addImportedCore(list,label,tabId,existentes){
-  tabId=tabId||'main';var kb={},add=[],dup=0,id=nextId(),perTab={},perMonth={};
+  tabId=tabId||'main';var kb={},add=[],dup=0,fech=0,id=nextId(),perTab={},perMonth={};
   list.forEach(function(r){var tb=(r._keep&&r.tabId)?r.tabId:tabId;delete r._keep;var keys=kb[tb]||(kb[tb]=(function(){var m={};existentes.filter(function(x){return recordTabId(x)===tb}).forEach(function(x){m[recKey(x)]=1});return m})());
-   var k=recKey(r);if(keys[k]){dup++;return}keys[k]=1;r.id=id++;r.tabId=tb;add.push(r);perTab[tb]=(perTab[tb]||0)+1;var mk=r.date.slice(5,7)+'/'+r.date.slice(0,4);perMonth[mk]=(perMonth[mk]||0)+1});
+   var k=recKey(r);if(keys[k]){dup++;return}if(mesFechado(r.date)){fech++;return}keys[k]=1;r.id=id++;r.tabId=tb;aplicarCusto(r,temCusto(r)?r:null);add.push(r);perTab[tb]=(perTab[tb]||0)+1;var mk=r.date.slice(5,7)+'/'+r.date.slice(0,4);perMonth[mk]=(perMonth[mk]||0)+1});
   var photoCount=add.filter(function(r){return !!r.photo}).length;
   return save(add).then(function(){S.recs=S.recs.concat(add.filter(function(r){return inPeriodo(r.date)}));render();
    var months=Object.keys(perMonth).sort(function(a,b){return (a.slice(3)+a.slice(0,2))<(b.slice(3)+b.slice(0,2))?-1:1}).map(function(k){return '<li>'+k+': <b>'+nf(perMonth[k])+'</b> registro(s)</li>'}).join(''),tabs=Object.keys(perTab).map(function(k){return '<li>'+esc(tabName(k))+': <b>'+nf(perTab[k])+'</b></li>'}).join('');
-   openModal('<h2>Importação concluída</h2><p>'+nf(add.length)+' registro(s) importado(s) de <b>'+esc(label)+'</b> e salvos no servidor.<br>'+nf(photoCount)+' foto(s) vinculada(s).<br>'+nf(dup)+' registro(s) duplicado(s) ignorado(s).</p>'+(tabs?'<p class="note"><b>Destino:</b></p><ul>'+tabs+'</ul>':'')+(months?'<p class="note"><b>Por mês:</b></p><ul>'+months+'</ul>':'')+'<div class="mfoot"><button class="btn pri" data-act="closeM">OK</button></div>')}).catch(function(e){console.error('Falha ao importar dados QC:',e);throw e})}
+   openModal('<h2>Importação concluída</h2><p>'+nf(add.length)+' registro(s) importado(s) de <b>'+esc(label)+'</b> e salvos no servidor.<br>'+nf(photoCount)+' foto(s) vinculada(s).<br>'+nf(dup)+' registro(s) duplicado(s) ignorado(s).'+(fech?'<br><b>'+nf(fech)+' registro(s) de mês fechado não foram importados</b> (reabra o mês em Gestão de Custos para incluí-los).':'')+'<br>'+nf(add.filter(function(r){return r.ng>0&&!temCusto(r)}).length)+' registro(s) com Scrap ficaram sem custo válido para a data.</p>'+(tabs?'<p class="note"><b>Destino:</b></p><ul>'+tabs+'</ul>':'')+(months?'<p class="note"><b>Por mês:</b></p><ul>'+months+'</ul>':'')+'<div class="mfoot"><button class="btn pri" data-act="closeM">OK</button></div>')}).catch(function(e){console.error('Falha ao importar dados QC:',e);throw e})}
  function addImported(list,label,tabId){var ds=list.map(function(r){return r.date}).filter(Boolean).sort();toast('Conferindo registros já existentes no banco…');return dbAllRange(ds.length?{de:ds[0],ate:ds[ds.length-1]}:null).then(function(ex){return addImportedCore(list,label,tabId,ex)})}
  function parseDate(v){
  if(v instanceof Date&&!isNaN(v)){return v.getFullYear()+'-'+('0'+(v.getMonth()+1)).slice(-2)+'-'+('0'+v.getDate()).slice(-2)}
@@ -755,14 +766,14 @@ function importFile(file,tabId){
    if(isJson){var j=JSON.parse(rd.result);
     if(j&&j.tipo==='biblioteca-fotos'){libRestore(j.fotos||[]);return}
     var arr=Array.isArray(j)?j:(j.records||[]),tabsIn=Array.isArray(j.regTabs)?j.regTabs:[],keep=tabsIn.length>0;
-    var l=arr.map(function(r){return {date:r.date,code:r.code||'',model:r.model||'',problem:r.problem||'',ng:+r.ng||+r.scrap||0,re:+r.re||+r.rework||0,turno:r.turno||'',insp:r.insp||'',local:r.local||'',photo:r.photo||'',operador:r.operador||'',maquina:r.maquina||'',soldador:r.soldador||'',turnoOperador:r.turnoOperador||'',turnoSoldador:r.turnoSoldador||'',turnoMaquina:r.turnoMaquina||'',obs:r.obs||'',tabId:r.tabId||'main',_keep:keep}}).filter(function(r){return r.date&&r.problem});
+    var l=arr.map(function(r){return {date:r.date,code:r.code||'',model:r.model||'',problem:r.problem||'',ng:+r.ng||+r.scrap||0,re:+r.re||+r.rework||0,turno:r.turno||'',insp:r.insp||'',local:r.local||'',photo:r.photo||'',operador:r.operador||'',maquina:r.maquina||'',soldador:r.soldador||'',turnoOperador:r.turnoOperador||'',turnoSoldador:r.turnoSoldador||'',turnoMaquina:r.turnoMaquina||'',obs:r.obs||'',photoBalanca:r.photoBalanca||'',custoUnit:r.custoUnit==null?null:r.custoUnit,custoId:r.custoId==null?null:r.custoId,custoVigencia:r.custoVigencia||null,prejuizo:r.prejuizo==null?null:r.prejuizo,tabId:r.tabId||'main',_keep:keep}}).filter(function(r){return r.date&&r.problem});
     askImport(l,file.name,tabId,{keep:keep,pre:function(){var map={main:'main'};S.regTabs=S.regTabs||[];tabsIn.forEach(function(t){var ex=S.regTabs.filter(function(x){return x.id===t.id})[0]||S.regTabs.filter(function(x){return norm(x.name)===norm(t.name)})[0];if(ex)map[t.id]=ex.id;else{S.regTabs.push({id:t.id,name:t.name,createdAt:t.createdAt||new Date().toISOString()});map[t.id]=t.id}});l.forEach(function(r){r.tabId=map[r.tabId]||'main'});return mset('regTabs',S.regTabs).then(function(){return libRestore(j.fotos||[],true)})}});return}
    XLSX.read(rd.result,{type:'array',cellDates:true}).then(processWb).catch(function(e){toast('Erro ao ler o arquivo: '+e.message)})
   }catch(e){toast('Erro ao ler o arquivo: '+e.message)}};
  if(isJson)rd.readAsText(file);else rd.readAsArrayBuffer(file)}
 function pickFile(tabId){S.importTargetTab=tabId||S.activeTabId||'main';var i=document.getElementById('fileIn');if(!i){i=document.createElement('input');i.type='file';i.id='fileIn';i.accept='.xlsx,.csv,.json';i.style.display='none';i.onchange=function(){var f=i.files[0],target=S.importTargetTab||'main';i.value='';if(f)importFile(f,target)};document.body.appendChild(i)}i.click()}
 function download(name,blob){var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;document.body.appendChild(a);a.click();setTimeout(function(){a.remove();URL.revokeObjectURL(a.href)},500)}
-function rowsOut(rs){return rs.slice().sort(function(a,b){return a.date<b.date?-1:a.date>b.date?1:0}).map(function(r){return {ID:r.id,Data:fd(r.date),'Código':r.code,Modelo:r.model,Problema:r.problem,'Local de inspeção':r.local||'',Tipo:tipoLabel(tipoOf(r)),Scrap:r.ng,Rework:r.re,'Quantidade':r.ng+r.re,Turno:r.turno,Inspetor:r.insp,'Turno do Operador':r.turnoOperador||'',Operador:r.operador||'','Turno do Soldador':r.turnoSoldador||'',Soldador:r.soldador||'','Turno da Máquina':r.turnoMaquina||'',Máquina:r.maquina||'','Obs.':r.obs,'Foto':r.photo?'Sim':'Não'}})}
+function rowsOut(rs){return rs.slice().sort(function(a,b){return a.date<b.date?-1:a.date>b.date?1:0}).map(function(r){return {ID:r.id,Data:fd(r.date),'Código':r.code,Modelo:r.model,Problema:r.problem,'Local de inspeção':r.local||'',Tipo:tipoLabel(tipoOf(r)),Scrap:r.ng,Rework:r.re,'Quantidade':r.ng+r.re,Turno:r.turno,Inspetor:r.insp,'Turno do Operador':r.turnoOperador||'',Operador:r.operador||'','Turno do Soldador':r.turnoSoldador||'',Soldador:r.soldador||'','Turno da Máquina':r.turnoMaquina||'',Máquina:r.maquina||'','Obs.':r.obs,'Foto':r.photo?'Sim':'Não','Foto da balança':r.photoBalanca?'Sim':'Não','Custo unitário (R$)':temCusto(r)?+r.custoUnit:'','Vigência do custo':r.custoVigencia?fd(r.custoVigencia):'','Prejuízo (R$)':temCusto(r)?prejuizoDe(r):''}})}
 function needX(){return true}
 function expXlsx(rs,name){if(!needX())return;var wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(rowsOut(rs)),'Registros');XLSX.writeFile(wb,name)}
 function expRel(){
@@ -782,17 +793,337 @@ function reportFileBase(tabId){return 'QC_Relatorio_'+slug(tabName(tabId))+'_'+n
 
 function csvOut(rs){var rows=rowsOut(rs);var keys=Object.keys(rows[0]||{ID:1});return '\ufeff'+[keys.join(';')].concat(rows.map(function(r){return keys.map(function(k){return '"'+String(r[k]==null?'':r[k]).replace(/"/g,'""')+'"'}).join(';')})).join('\n')}
 
+/* ===== Gestão de Custos ===== */
+/* Custo por código com data de vigência (tabela "custos"). Cada registro guarda o custo aplicado
+   (custoUnit, custoId, custoVigencia) e o prejuízo = Scrap × custoUnit. Uma importação nova não muda
+   esses valores; só o administrador recalcula, com autorização explícita e registro da correção. */
+S.custos=[];S.fech={};S.regras={};S.custosOk=false;S.ctab='imp';S.seqCampo='operador';S.relc={};
+function codeKey(c){return String(c==null?'':c).trim().toUpperCase()}
+function brl(v){return Number(v||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'})}
+function temCusto(r){return !!r&&r.custoUnit!=null&&r.custoUnit!==''&&!isNaN(+r.custoUnit)}
+function prejuizoDe(r){if(!temCusto(r))return 0;return r.prejuizo!=null&&r.prejuizo!==''?+r.prejuizo:Math.round((+r.ng||0)*(+r.custoUnit)*100)/100}
+function erroTxt(e){var m=(e&&(e.message||e.details))||'erro de conexão';return String(m).replace(/^(MES_FECHADO|IMPORTACAO_DUPLICADA):\s*/,'')}
+function mesFechado(d){var f=d&&S.fech[String(d).slice(0,7)];return !!(f&&f.status==='fechado')}
+function msgFechado(d){return 'O mês '+String(d).slice(5,7)+'/'+String(d).slice(0,4)+' está fechado. Peça ao administrador para reabri-lo em Gestão de Custos › Fechamento.'}
+function exigeBalanca(){var r=S.regras&&S.regras.fotoBalanca;return !!(r&&r.exigir)}
+function diaAnterior(iso){return new Date(+new Date(iso+'T12:00:00Z')-864e5).toISOString().slice(0,10)}
+function sbAll(q){var out=[];function page(f){return q().range(f,f+999).then(sbErr).then(function(r){var l=r.data||[];out=out.concat(l);return l.length===1000?page(f+1000):out})}return page(0)}
+function loadCustos(){
+ return Promise.all([sbAll(function(){return sb.from('custos').select('id,codigo,modelo,custo,vigencia,importacao_id,atualizado_em').order('codigo').order('vigencia').order('id')}),
+  sb.from('fechamentos').select('periodo,status,totais,atualizado_por,atualizado_em').then(sbErr),sb.from('regras').select('chave,valor').then(sbErr)])
+ .then(function(r){S.custos=r[0].map(function(c){c.custo=+c.custo;c.id=+c.id;return c});S.fech={};(r[1].data||[]).forEach(function(f){S.fech[f.periodo]=f});S.regras={};(r[2].data||[]).forEach(function(x){S.regras[x.chave]=x.valor});S.custosOk=true;S.custosErro=''})
+ .catch(function(e){S.custosOk=false;S.custosErro=erroTxt(e);S.custos=[];S.fech={};S.regras={}})}
+function loadCustosExtra(){
+ return Promise.all([sb.from('custos_importacoes').select('*').order('em',{ascending:false}).limit(200).then(sbErr),sb.from('custos_correcoes').select('*').order('em',{ascending:false}).limit(300).then(sbErr),sb.from('fechamentos_log').select('*').order('em',{ascending:false}).limit(100).then(sbErr)])
+ .then(function(r){S.cimps=r[0].data||[];S.ccor=r[1].data||[];S.flog=r[2].data||[]},function(){S.cimps=S.cimps||[];S.ccor=S.ccor||[];S.flog=S.flog||[]})
+ .then(function(){if(S.page==='custos'&&!$('#modals').innerHTML)render()})}
+/* Custo vigente: o preço do código com a maior vigência que seja anterior ou igual à data */
+function custoVigente(code,date){var k=codeKey(code),best=null;if(!k||!date)return null;S.custos.forEach(function(c){if(c.codigo===k&&c.vigencia<=date&&(!best||c.vigencia>best.vigencia))best=c});return best}
+/* Grava no registro o custo aplicado. Mantém o custo já gravado se o código e a data não mudaram. */
+function aplicarCusto(rec,old){
+ var keep=temCusto(old)&&codeKey(old.code)===codeKey(rec.code)&&old.date===rec.date,c;
+ if(keep){rec.custoUnit=+old.custoUnit;rec.custoId=old.custoId==null?null:old.custoId;rec.custoVigencia=old.custoVigencia||null}
+ else if((c=custoVigente(rec.code,rec.date))){rec.custoUnit=c.custo;rec.custoId=c.id;rec.custoVigencia=c.vigencia}
+ else{rec.custoUnit=null;rec.custoId=null;rec.custoVigencia=null}
+ rec.prejuizo=temCusto(rec)?Math.round((+rec.ng||0)*rec.custoUnit*100)/100:null;return rec}
+function custoInfo(){var b=$('#custoBox');if(!b)return;
+ var code=(($('#f_code')||{}).value||'').trim(),date=($('#f_date')||{}).value||'',tp=($('#f_tipo')||{}).value,ng=tp==='RE'?0:(+($('#f_ng')||{}).value||0),old=S.formOld;
+ if(!S.custosOk){b.innerHTML='<div class="note">Custos indisponíveis: '+esc(S.custosErro||'tabelas de custo não encontradas')+'.</div>';return}
+ if(!code){b.innerHTML='<div class="note">Informe o código para consultar o custo unitário vigente na data do descarte.</div>';return}
+ var keep=temCusto(old)&&codeKey(old.code)===codeKey(code)&&old.date===date,c=custoVigente(code,date),cu=keep?+old.custoUnit:(c?c.custo:null),m=$('#f_model');
+ if(m&&!m.value.trim()&&c&&c.modelo)m.value=c.modelo;
+ if(cu==null){b.innerHTML='<div class="warn">Sem custo válido para o código <b>'+esc(code)+'</b> em '+fd(date)+'. O prejuízo deste registro não será calculado (nenhum valor é assumido). O administrador cadastra o custo em Gestão de Custos.</div>';return}
+ b.innerHTML='<div class="note" style="padding:8px 10px;border:1px solid var(--line);border-radius:8px">'
+  +(keep?'Custo unitário gravado neste registro (preservado): <b>'+brl(cu)+'</b>'+(old.custoVigencia?' · vigência desde '+fd(old.custoVigencia):'')+(c&&c.custo!==cu?'<br>Custo atual do histórico para esta data: '+brl(c.custo)+'. O registro mantém o valor gravado.':'')
+   :'Custo unitário vigente em '+fd(date)+': <b>'+brl(cu)+'</b> · vigência desde '+fd(c.vigencia)+(c.modelo?' · '+esc(c.modelo):''))
+  +'<br>Prejuízo deste registro: <b>'+brl(Math.round(ng*cu*100)/100)+'</b> ('+nf(ng)+' peça(s) de Scrap × '+brl(cu)+')</div>'}
+function showBal(){var b=$('#balBox');if(!b)return;b.innerHTML=S.photoBal?'<img class="thumb big" src="'+S.photoBal+'"> <button type="button" class="btn sm" data-act="rmBal">Remover foto da balança</button>':''}
+function readBal(f){if(!f)return;if(!/^image\//i.test(f.type)){toast('Selecione um arquivo de imagem válido.');return}
+ fileToURL(f).then(function(u){return imgScale(u,2000,.85)}).then(function(d){S.photoBal=d;showBal();toast('Foto da balança carregada. Clique em Salvar alterações para gravar.')}).catch(function(){toast('Não foi possível ler a foto da balança. Tente outra imagem.')})}
+function fotosModal(r){var box=function(t,src){return '<div class="card" style="margin:0"><h3>'+t+'</h3>'+(src?'<img src="'+src+'" style="max-width:100%;border-radius:8px">':'<div class="empty">Sem foto.</div>')+'</div>'};
+ openModal('<h2>Fotos do registro #'+r.id+'</h2><div class="grid2">'+box('Foto do problema',r.photo)+box('Foto da Caixa na Balança',r.photoBalanca)+'</div><div class="note" style="margin-top:6px">'+fd(r.date)+' · '+esc(r.code)+' · '+esc(r.model)+' · '+esc(r.problem)+'</div><div class="mfoot"><button class="btn pri" data-act="closeM">Fechar</button></div>',true)}
+function salvarRegra(k,v){if(!isAdmin()){toast('Somente o administrador altera as regras.');return}
+ sb.from('regras').upsert({chave:k,valor:v,atualizado_por:USER.name||'',atualizado_em:new Date().toISOString()}).then(sbErr).then(function(){S.regras[k]=v;toast('Regra salva para todos os usuários.');render()}).catch(function(e){toast('Não foi possível salvar a regra: '+erroTxt(e))})}
+
+/* Filtros de data, mês ou ano buscam no banco o período pedido (sem filtro: mês atual) */
+function periodoDosFiltros(){var f=S.f,y=new Date().getFullYear();
+ if(f.d1||f.d2)return {tipo:'custom',de:f.d1||((f.d2||'').slice(0,4)+'-01-01'),ate:f.d2||hojeISO()};
+ if(f.ano||f.mes){var a=+(f.ano||y);if(f.mes)return {tipo:'custom',de:hojeISO(new Date(a,+f.mes-1,1)),ate:hojeISO(new Date(a,+f.mes,0))};return {tipo:'custom',de:a+'-01-01',ate:a+'-12-31'}}
+ return {tipo:'mes'}}
+function ajustaPeriodo(){var p=periodoDosFiltros(),a=periodoRange(p),b=periodoRange(S.periodo);if(a&&b&&a.de===b.de&&a.ate===b.ate)return false;S.periodo=p;loadData().then(render);return true}
+
+/* ===== Dashboard: descartes, defeitos, sequência de erros e prejuízo ===== */
+/* Sequência = dias de produção seguidos (dias que têm algum registro no período filtrado)
+   em que o responsável teve pelo menos um registro com defeito. Dias sem registro não quebram a sequência. */
+function maiorSequencia(rs,campo){
+ var dias=Object.keys(rs.reduce(function(m,r){m[r.date]=1;return m},{})).sort(),ix={},por={};dias.forEach(function(d,i){ix[d]=i});
+ rs.forEach(function(r){if(!(r.ng+r.re>0))return;var v=String(r[campo]||'').trim();if(!v)return;if(campo==='maquina'&&/^\d+$/.test(v))v='Máquina '+v;
+  var k=norm(v),o=por[k]||(por[k]={nome:titleCase(v),dias:{}}),dd=o.dias[r.date]||(o.dias[r.date]={n:0,pc:0});dd.n++;dd.pc+=r.ng+r.re});
+ return Object.keys(por).map(function(k){var o=por[k],ds=Object.keys(o.dias).sort(),best=null,cur=null;
+  ds.forEach(function(d){var x=o.dias[d];if(cur&&ix[d]===ix[cur.ate]+1){cur.ate=d;cur.len++;cur.n+=x.n;cur.pc+=x.pc}else cur={de:d,ate:d,len:1,n:x.n,pc:x.pc};if(!best||cur.len>best.len||(cur.len===best.len&&cur.n>best.n))best=Object.assign({},cur)});
+  return {k:o.nome,len:best.len,n:best.n,pc:best.pc,de:best.de,ate:best.ate,dias:ds.length}}).sort(function(a,b){return b.len-a.len||b.n-a.n||a.k.localeCompare(b.k,'pt')})}
+function pIndicadores(rs){
+ var g=S.gran,SM='(sem modelo)',top=groupBy(rs.filter(function(r){return r.ng>0}),function(r){return r.model||SM}).sort(function(a,b){return b.ng-a.ng}).slice(0,8);
+ var ks=series(rs.filter(function(r){return r.ng>0}),g).map(function(o){return o.k}),cut=ks.length>16,cell={},mx=0;ks=ks.slice(-16);
+ rs.forEach(function(r){if(r.ng>0){var c=(r.model||SM)+'|'+periodKey(g)(r);cell[c]=(cell[c]||0)+r.ng}});
+ top.forEach(function(t){ks.forEach(function(k){mx=Math.max(mx,cell[t.k+'|'+k]||0)})});
+ var mat=top.length?'<div class="tw"><table><thead><tr><th>Modelo</th>'+ks.map(function(k){return '<th class="n">'+esc(periodLabel(g,k))+'</th>'}).join('')+'<th class="n">Total</th></tr></thead><tbody>'
+  +top.map(function(t){return '<tr class="click" data-det="model" data-v="'+esc(t.k)+'"><td>'+esc(t.k)+'</td>'+ks.map(function(k){var v=cell[t.k+'|'+k]||0;return '<td class="n" style="background:rgba(192,57,43,'+(mx?(v/mx*.5).toFixed(2):0)+')">'+(v?nf(v):'·')+'</td>'}).join('')+'<td class="n"><b>'+nf(t.ng)+'</b></td></tr>'}).join('')+'</tbody></table></div>'
+  +(cut?'<div class="note">Mostrando os 16 períodos mais recentes. O total considera todo o filtro.</div>':''):'<div class="empty">Sem Scrap nos filtros selecionados.</div>';
+ var occ=groupBy(rs.filter(function(r){return r.ng+r.re>0}),function(r){return r.model||SM}).sort(function(a,b){return b.n-a.n||b.tot-a.tot}).slice(0,10).map(function(o){return {k:o.k,v:o.n}});
+ var cps=[['operador','Operador'],['soldador','Soldador'],['maquina','Máquina'],['insp','Inspetor']],cf=S.seqCampo||'operador',lab=cps.filter(function(c){return c[0]===cf})[0][1],seq=maiorSequencia(rs,cf).slice(0,10);
+ var seqH=seq.length?'<div class="tw"><table><thead><tr><th>#</th><th>'+lab+'</th><th class="n">Dias seguidos</th><th class="n">Ocorrências na sequência</th><th class="n">Peças</th><th>Período da sequência</th><th class="n">Dias com defeito (total)</th></tr></thead><tbody>'
+  +seq.map(function(s,i){return '<tr><td>'+(i+1)+'</td><td>'+esc(s.k)+'</td><td class="n"><b>'+nf(s.len)+'</b></td><td class="n">'+nf(s.n)+'</td><td class="n">'+nf(s.pc)+'</td><td>'+fd(s.de)+(s.ate!==s.de?' a '+fd(s.ate):'')+'</td><td class="n">'+nf(s.dias)+'</td></tr>'}).join('')+'</tbody></table></div>'
+  :'<div class="empty">Nenhum registro com '+lab.toLowerCase()+' informado nos filtros selecionados.</div>';
+ var sc=rs.filter(function(r){return r.ng>0}),cc=sc.filter(temCusto),pj=cc.reduce(function(s,r){return s+prejuizoDe(r)},0),semN=sc.length-cc.length,semP=sc.filter(function(r){return !temCusto(r)}).reduce(function(s,r){return s+r.ng},0);
+ return '<div class="top" style="margin-top:18px"><div><h2 style="margin:0">Descartes, defeitos e custos</h2><div class="sub">'+esc(activeFilterText())+' · prejuízo = Scrap × custo unitário gravado em cada registro</div></div></div>'
+  +'<div class="kpis"><div class="kpi ng"><span>Prejuízo dos descartes</span><b>'+brl(pj)+'</b></div><div class="kpi"><span>Peças descartadas (Scrap)</span><b>'+nf(sum(rs).ng)+'</b></div><div class="kpi re"><span>Registros com Scrap sem custo</span><b>'+nf(semN)+'</b></div><div class="kpi c7"><span>Peças sem custo válido</span><b>'+nf(semP)+'</b></div></div>'
+  +'<div class="card"><h3>Gráfico 1 — Modelo mais descartado (peças de Scrap por período)</h3>'+granTabs('gran',S.gran)+mat+'</div>'
+  +'<div class="grid2"><div class="card"><h3>Gráfico 2 — Modelos com mais ocorrências de defeito</h3>'+hbars(occ,'var(--pri2)')+'<div class="note">Número de registros com Scrap ou Rework por modelo (não é a soma de peças). Os modelos do topo pedem mais atenção.</div></div>'
+  +'<div class="card"><h3>Gráfico 3 — Maior sequência de erros por responsável</h3><div class="bar"><label class="note">Responsável <select id="seq_campo">'+cps.map(function(c){return '<option value="'+c[0]+'"'+(c[0]===cf?' selected':'')+'>'+c[1]+'</option>'}).join('')+'</select></label></div>'+seqH
+  +'<div class="note">Sequência = dias de produção seguidos (dias com pelo menos um registro no período filtrado) em que o responsável teve registro com defeito. Usa somente o nome informado no campo '+lab+'; registros sem esse campo não entram.</div></div></div>'}
+
+/* ===== Página Gestão de Custos ===== */
+function pCustos(){
+ var h='<div class="top"><div><h1>Gestão de Custos</h1><div class="sub">Custo unitário por código com data de vigência · prejuízo dos descartes = Scrap × custo vigente na data do descarte</div></div></div>';
+ if(!S.custosOk)return h+'<div class="card"><h3>Estrutura de custos não encontrada no banco</h3><p class="note">Rode o arquivo <b>supabase/gestao_custos.sql</b> no SQL Editor do Supabase. Detalhe: '+esc(S.custosErro||'—')+'</p></div>';
+ if(!S.cimps&&!S.cextra){S.cextra=true;loadCustosExtra()}
+ h+='<div class="tabs noprint">'+[['imp','Importação de custos'],['hist','Histórico de preços'],['fech','Fechamento semanal e mensal'],['rel','Relatório de prejuízo']].map(function(x){return '<button class="'+(S.ctab===x[0]?'on':'')+'" data-act="c:tab" data-tabid="'+x[0]+'">'+x[1]+'</button>'}).join('')+'</div>';
+ if(!isAdmin())h+='<div class="note" style="margin-bottom:10px">Você pode consultar custos e relatórios. Importar, corrigir preços e fechar ou reabrir meses é permitido somente ao administrador.</div>';
+ return h+(S.ctab==='hist'?cHist():S.ctab==='fech'?cFech():S.ctab==='rel'?cRel():cImp())}
+
+/* ---- Importação ---- */
+function numCusto(v){if(typeof v==='number')return isFinite(v)?v:NaN;var s=String(v==null?'':v).replace(/R\$|\s/g,'');if(!s)return NaN;if(/,\d{1,4}$/.test(s))s=s.replace(/\./g,'').replace(',','.');else s=s.replace(/,/g,'');return /^-?\d+(\.\d+)?$/.test(s)?parseFloat(s):NaN}
+function detectaAba(nome,rows){var a={nome:nome,ok:false,linhas:[],titulo:'',vigArquivo:'',colsTxt:''};
+ for(var i=0;i<Math.min(rows.length,20);i++){var hs=(rows[i]||[]).map(function(x){return norm(x).replace(/\s+/g,' ').trim()}),c=hs.indexOf('codigo'),v=-1,m=-1,vg=-1;
+  ['custo unitario','valor unitario','preco unitario','custo','valor','preco'].some(function(k){v=hs.indexOf(k);return v>=0});
+  if(c<0||v<0)continue;
+  hs.some(function(x,j){if(/^(modelo|descricao|discricao)/.test(x)){m=j;return true}return false});
+  hs.some(function(x,j){if(/vigencia/.test(x)){vg=j;return true}return false});
+  for(var t=0;t<i;t++){var tv=(rows[t]||[]).filter(function(x){return x!=null&&String(x).trim()!==''})[0];if(tv!=null){a.titulo=String(tv).trim();break}}
+  a.ok=true;a.colsTxt=[c,m,v,vg].filter(function(j){return j>=0}).map(function(j){return String(rows[i][j]).trim()}).join(', ');
+  var vigs={};
+  for(var k=i+1;k<rows.length;k++){var r=rows[k]||[];if(r.every(function(x){return x==null||String(x).trim()===''}))continue;var vd=vg>=0?parseDate(r[vg]):null;if(vd)vigs[vd]=1;a.linhas.push({linha:k+1,codigo:r[c],modelo:m>=0?r[m]:'',valor:r[v]})}
+  var vk=Object.keys(vigs).sort();if(vk.length===1)a.vigArquivo=vk[0];else if(vk.length>1)a.vigMulti=vk;
+  break}
+ return a}
+function lerPlanilhaCustos(f){var rd=new FileReader();rd.onerror=function(){toast('Não foi possível ler o arquivo.')};
+ rd.onload=function(){var buf=rd.result;Promise.all([crypto.subtle.digest('SHA-256',buf),XLSX.read(buf,{type:'array'})]).then(function(r){
+   var hash=Array.prototype.map.call(new Uint8Array(r[0]),function(b){return ('0'+b.toString(16)).slice(-2)}).join(''),wb=r[1],abas=wb.SheetNames.map(function(sn){return detectaAba(sn,(wb.Sheets[sn]||{}).rows||[])}),ini=0;
+   for(var i=0;i<abas.length;i++)if(abas[i].ok){ini=i;break}
+   S.cimp={nome:f.name,hash:hash,abas:abas,aba:ini,vig:abas[ini]&&abas[ini].vigArquivo||'',an:null,esc:{},preencher:true,recalcular:false,motivo:''};render()})
+  .catch(function(e){toast('Erro ao ler a planilha: '+erroTxt(e))})};
+ rd.readAsArrayBuffer(f)}
+function analisarImport(){var ci=S.cimp,ab=ci.abas[ci.aba],vig=ci.vig,key=ci.aba+'|'+vig,inval=[],espacos=0,por={};ci.analisando=true;
+ ab.linhas.forEach(function(l){var raw=l.codigo==null?'':String(l.codigo),cod=codeKey(raw),val=numCusto(l.valor),mod=String(l.modelo==null?'':l.modelo).trim();if(/^#/.test(mod))mod='';
+  if(!cod){inval.push({linha:l.linha,codigo:'',motivo:'Código vazio'});return}
+  if(raw!==raw.trim())espacos++;
+  if(isNaN(val)){inval.push({linha:l.linha,codigo:cod,motivo:'Valor inválido ('+(l.valor==null||l.valor===''?'vazio':String(l.valor))+')'});return}
+  if(val<=0){inval.push({linha:l.linha,codigo:cod,motivo:'Valor zero ou negativo'});return}
+  var o=por[cod]||(por[cod]={linhas:[],valores:{},modelos:{}});o.linhas.push(l.linha);o.valores[val]=(o.valores[val]||0)+1;if(mod)o.modelos[mod]=1});
+ var codes=Object.keys(por).sort();
+ Promise.all([sb.from('custos_importacoes').select('aba,vigencia,em,usuario_nome,arquivo').eq('hash',ci.hash).then(sbErr),codes.length?sb.rpc('custos_previa',{p_vigencia:vig,p_codigos:codes}).then(sbErr):Promise.resolve({data:[]})])
+ .then(function(r){var prev={};(r[1].data||[]).forEach(function(x){prev[x.codigo]=x});
+  var itens=codes.map(function(cod){var o=por[cod],vals=Object.keys(o.valores).map(Number).sort(function(a,b){return a-b}),mods=Object.keys(o.modelos),ex=S.custos.filter(function(c){return c.codigo===cod&&c.vigencia===vig})[0]||null,ant=custoVigente(cod,vig),p=prev[cod]||{};
+   var it={codigo:cod,linhas:o.linhas,valores:vals,qtdValor:o.valores,modelo:mods[0]||'',ex:ex,atual:ant,previa:p,conhecido:S.custos.some(function(c){return c.codigo===cod})||!!p.em_registros,alertas:[]};
+   if(vals.length>1)it.alertas.push('Valores diferentes para o mesmo código em '+nf(o.linhas.length)+' linhas: escolha o valor correto ou o código não será importado');
+   else if(o.linhas.length>1)it.alertas.push('Código repetido em '+nf(o.linhas.length)+' linhas com o mesmo valor');
+   if(mods.length>1)it.alertas.push('Modelos diferentes na planilha: '+mods.join(' / '));
+   var cad=ex?ex.modelo:(ant?ant.modelo:'');if(cad&&it.modelo&&norm(cad)!==norm(it.modelo))it.alertas.push('Modelo diferente do cadastro ('+cad+')');
+   if(!it.conhecido)it.alertas.push('Produto desconhecido: não aparece nos registros nem no histórico de custos');
+   if(p.proxima_vigencia)it.alertas.push('Já existe preço a partir de '+fd(p.proxima_vigencia)+': este valerá até a véspera');
+   return it});
+  ci.an={key:key,itens:itens,inval:inval,espacos:espacos,dups:r[0].data||[],total:ab.linhas.length};ci.analisando=false;render()})
+ .catch(function(e){ci.analisando=false;ci.an={key:key,erro:erroTxt(e)};render()})}
+function itemValor(ci,it){if(it.valores.length===1)return it.valores[0];var v=ci.esc[it.codigo];return v===undefined||v===''?null:+v}
+function cImp(){var ci=S.cimp,h='';
+ if(!isAdmin())h+='<div class="card"><h3>Importação de custos</h3><p class="note">Somente o administrador importa planilhas de custo.</p></div>';
+ else{h+='<div class="card"><h3>1. Selecionar a planilha de custos (.xlsx)</h3><p class="note">A planilha precisa ter as colunas <b>Código</b> e <b>Valor</b> (ou Custo); a coluna <b>Modelo</b> é recomendada. Cada aba é importada separadamente. Os valores são usados exatamente como estão na planilha (o sistema não converte dólar) e a data de vigência informada pelo RH é obrigatória.</p><div class="bar"><button class="btn pri" data-act="c:arquivo"'+(S.cbusy?' disabled':'')+'>📂 Selecionar planilha</button>'+(ci?'<span class="note">Arquivo: <b>'+esc(ci.nome)+'</b> · '+nf(ci.abas.length)+' aba(s)</span><button class="btn sm" data-act="c:cancelarImp">Cancelar</button>':'')+'</div></div>';
+  if(ci)h+=cImpPasso2(ci)}
+ var rg=S.regras.fotoBalanca||{};
+ h+='<div class="card"><h3>Regra operacional — Foto da Caixa na Balança</h3>'+(isAdmin()?'<label style="display:flex;gap:8px;align-items:center;font-size:13px"><input type="checkbox" data-c="regraBal"'+(rg.exigir?' checked':'')+'> Exigir a foto da caixa na balança para salvar registros com Scrap</label>':'<p class="note">'+(rg.exigir?'A foto da caixa na balança é obrigatória para registros com Scrap.':'A foto da caixa na balança é opcional.')+'</p>')+'<p class="note">Vale para todos os usuários. Registros antigos não são alterados.</p></div>';
+ var l=S.cimps||[];
+ h+='<div class="card"><h3>Importações realizadas</h3>'+(l.length?'<div class="tw"><table><thead><tr><th>Data</th><th>Usuário</th><th>Arquivo</th><th>Aba</th><th>Vigência</th><th class="n">Linhas</th><th class="n">Inseridos</th><th class="n">Atualizados</th><th class="n">Sem alteração</th><th class="n">Ignorados</th><th class="n">Reg. com custo</th><th class="n">Recalculados</th></tr></thead><tbody>'
+  +l.map(function(i){return '<tr><td>'+new Date(i.em).toLocaleString('pt-BR')+'</td><td>'+esc(i.usuario_nome)+'</td><td>'+esc(i.arquivo)+'</td><td>'+esc(i.aba)+'</td><td>'+fd(i.vigencia)+'</td><td class="n">'+nf(i.linhas)+'</td><td class="n">'+nf(i.inseridos)+'</td><td class="n">'+nf(i.atualizados)+'</td><td class="n">'+nf(i.sem_alteracao)+'</td><td class="n">'+nf(i.ignorados)+'</td><td class="n">'+nf(i.registros_preenchidos)+'</td><td class="n">'+nf(i.registros_recalculados)+'</td></tr>'}).join('')+'</tbody></table></div>':'<div class="empty">'+(S.cimps?'Nenhuma importação ainda.':'Carregando…')+'</div>')+'</div>';
+ return h}
+function cImpPasso2(ci){var ab=ci.abas[ci.aba];
+ var h='<div class="card"><h3>2. Aba e data de vigência</h3><div class="flt"><label>Aba da planilha<select data-c="aba">'+ci.abas.map(function(a,i){return '<option value="'+i+'"'+(i===ci.aba?' selected':'')+'>'+esc(a.nome)+(a.ok?' ('+nf(a.linhas.length)+' linhas)':' — colunas não reconhecidas')+'</option>'}).join('')+'</select></label>'
+  +'<label>Data de vigência informada pelo RH *<input type="date" data-c="vig" value="'+esc(ci.vig||'')+'"></label></div>';
+ if(!ab||!ab.ok)return h+'<div class="warn">Não encontrei as colunas Código e Valor/Custo nesta aba.</div></div>';
+ h+='<p class="note">Colunas encontradas: '+esc(ab.colsTxt)+(ab.titulo?' · título da aba: <b>'+esc(ab.titulo)+'</b>':'')+'. '+(ab.vigArquivo?'A planilha informa a vigência '+fd(ab.vigArquivo)+'.':'A planilha não informa a data de vigência: informe a data acima. A data de hoje não é usada automaticamente.')+'</p>';
+ if(ab.vigMulti)return h+'<div class="warn">Esta aba tem datas de vigência diferentes ('+ab.vigMulti.map(fd).join(', ')+'). Separe cada vigência em uma aba antes de importar.</div></div>';
+ if(!ci.vig)return h+'</div>';
+ if(!ci.an||ci.an.key!==ci.aba+'|'+ci.vig){if(!ci.analisando)setTimeout(analisarImport,0);return h+'<div class="empty">Analisando a planilha…</div></div>'}
+ return h+'</div>'+cImpPrevia(ci,ci.an,ab)}
+function cImpPrevia(ci,an,ab){if(an.erro)return '<div class="card warn">Não foi possível analisar: '+esc(an.erro)+'</div>';
+ var c={ins:0,upd:0,eq:0,conf:0,desc:0,sem:0,retro:0,fech:0};
+ an.itens.forEach(function(it){var v=itemValor(ci,it),p=it.previa;it.valor=v;it.acao=v==null?'conflito':it.ex?(it.ex.custo===v?'igual':'atualizar'):'inserir';
+  c[{inserir:'ins',atualizar:'upd',igual:'eq',conflito:'conf'}[it.acao]]++;if(!it.conhecido)c.desc++;
+  if(v!=null){c.sem+=+p.sem_custo||0;c.retro+=(+p.outro_custo||0)+(it.acao==='atualizar'?(+p.mesmo_preco||0):0);c.fech+=+p.fechados||0}});
+ var dupMesma=an.dups.filter(function(d){return d.aba===ab.nome&&d.vigencia===ci.vig}),dupOutra=an.dups.filter(function(d){return d.aba===ab.nome&&d.vigencia!==ci.vig}),validos=c.ins+c.upd+c.eq;
+ var retroData=ci.vig<hojeISO().slice(0,8)+'01',AC={inserir:'<span class="chip both">Inserir</span>',atualizar:'<span class="chip re">Atualizar (correção)</span>',igual:'<span class="chip">Sem alteração</span>',conflito:'<span class="chip ng">Conflito</span>'};
+ var k=function(t,n,cls){return '<div class="kpi '+(cls||'')+'"><span>'+t+'</span><b>'+nf(n)+'</b></div>'};
+ var h='<div class="card"><h3>3. Prévia e validação</h3><div class="kpis">'+k('Linhas lidas',an.total)+k('Códigos válidos',an.itens.length,'c2')+k('Serão inseridos',c.ins,'ok')+k('Serão atualizados',c.upd,'re')+k('Sem alteração',c.eq,'c7')+k('Códigos em conflito',c.conf,'ng')+k('Linhas inválidas',an.inval.length,'ng')+k('Produtos desconhecidos',c.desc,'c5')+'</div>';
+ if(dupMesma.length)h+='<div class="warn"><b>Importação duplicada:</b> esta aba deste mesmo arquivo já foi importada com a vigência '+fd(ci.vig)+' em '+new Date(dupMesma[0].em).toLocaleString('pt-BR')+' por '+esc(dupMesma[0].usuario_nome)+'. A importação foi bloqueada.</div>';
+ if(dupOutra.length)h+='<div class="warn">Esta aba deste mesmo arquivo já foi importada com outra vigência ('+dupOutra.map(function(d){return fd(d.vigencia)}).join(', ')+'). Confira se a data de vigência está certa.</div>';
+ if(retroData)h+='<div class="warn"><b>Vigência retroativa:</b> '+fd(ci.vig)+' é anterior ao mês atual. Registros já lançados nesse período não mudam sem a autorização abaixo.</div>';
+ if(an.espacos)h+='<div class="note" style="margin-top:6px">'+nf(an.espacos)+' código(s) tinham espaços no início ou no fim e foram ajustados.</div>';
+ h+='<div class="tw" style="margin-top:10px"><table><thead><tr><th>Código</th><th>Modelo (planilha)</th><th class="n">Linhas</th><th>Valor da planilha</th><th>Custo vigente em '+fd(ci.vig)+'</th><th>Ação</th><th>Alertas</th></tr></thead><tbody>'
+  +an.itens.map(function(it){var vv=it.valores.length===1?brl(it.valores[0]):'<select data-c="esc" data-cod="'+esc(it.codigo)+'"><option value="">Não importar</option>'+it.valores.map(function(v){return '<option value="'+v+'"'+(it.valor===v?' selected':'')+'>'+brl(v)+' ('+nf(it.qtdValor[v])+' linha(s))</option>'}).join('')+'</select>';
+   var at=it.ex?brl(it.ex.custo)+' <span class="note">(mesma vigência)</span>':it.atual?brl(it.atual.custo)+' <span class="note">desde '+fd(it.atual.vigencia)+'</span>':'<span class="note">sem custo</span>';
+   return '<tr><td><b>'+esc(it.codigo)+'</b></td><td class="wrap">'+esc(it.modelo)+'</td><td class="n">'+nf(it.linhas.length)+'</td><td>'+vv+'</td><td>'+at+'</td><td>'+AC[it.acao]+'</td><td class="wrap">'+(it.alertas.length?esc(it.alertas.join(' · ')):'—')+'</td></tr>'}).join('')+'</tbody></table></div>';
+ if(an.inval.length)h+='<h3 style="margin-top:12px">Linhas inválidas (não serão importadas)</h3><div class="tw" style="max-height:220px"><table><thead><tr><th class="n">Linha</th><th>Código</th><th>Motivo</th></tr></thead><tbody>'+an.inval.slice(0,200).map(function(x){return '<tr><td class="n">'+x.linha+'</td><td>'+esc(x.codigo)+'</td><td>'+esc(x.motivo)+'</td></tr>'}).join('')+'</tbody></table></div>'+(an.inval.length>200?'<div class="note">Mostrando 200 de '+nf(an.inval.length)+'.</div>':'');
+ h+='</div><div class="card"><h3>4. Efeito nos registros de descarte</h3>'
+  +'<label style="display:flex;gap:8px;align-items:center;font-size:13px;margin-bottom:8px"><input type="checkbox" data-c="preencher"'+(ci.preencher?' checked':'')+'> Aplicar o custo aos <b>'+nf(c.sem)+'</b> registro(s) desses códigos que estão <b>sem custo</b> dentro da vigência</label>'
+  +'<label style="display:flex;gap:8px;align-items:center;font-size:13px"><input type="checkbox" data-c="recalcular"'+(ci.recalcular?' checked':'')+(c.retro?'':' disabled')+'> Autorizo recalcular os <b>'+nf(c.retro)+'</b> registro(s) que já têm outro custo gravado dentro da vigência (alteração retroativa)</label>'
+  +(ci.recalcular?'<div class="frm" style="margin-top:8px"><label class="full">Motivo do recálculo retroativo *<input type="text" data-c="motivo" maxlength="300" value="'+esc(ci.motivo||'')+'"></label></div>':'')
+  +'<p class="note">Sem a autorização, os registros que já têm custo mantêm o valor gravado. '+(c.fech?nf(c.fech)+' registro(s) de meses fechados não serão alterados. ':'')+'Os preços anteriores continuam no histórico.</p>'
+  +(c.conf?'<div class="warn">'+nf(c.conf)+' código(s) em conflito ficarão fora desta importação até você escolher o valor correto.</div>':'')
+  +'<div class="mfoot"><button class="btn pri" data-act="c:importar"'+(dupMesma.length||!validos||S.cbusy?' disabled':'')+'>'+(S.cbusy?'Importando…':'Confirmar importação de '+nf(validos)+' código(s)')+'</button></div></div>';
+ return h}
+function confirmarImport(){var ci=S.cimp,an=ci&&ci.an,ab=ci&&ci.abas[ci.aba];if(!an||!an.itens)return;
+ var itens=an.itens.filter(function(it){return it.valor!=null}).map(function(it){return {codigo:it.codigo,modelo:it.modelo,custo:it.valor}}),ign=an.inval.length+an.itens.filter(function(it){return it.valor==null}).length;
+ if(!itens.length){toast('Nenhum código válido para importar.');return}
+ if(ci.recalcular&&!String(ci.motivo||'').trim()){toast('Informe o motivo do recálculo retroativo.');return}
+ if(!confirm('Importar '+itens.length+' código(s) com vigência '+fd(ci.vig)+'?'+(ci.recalcular?'\n\nATENÇÃO: registros que já têm custo dentro da vigência serão recalculados (alteração retroativa autorizada).':'')))return;
+ S.cbusy=true;render();
+ sb.rpc('importar_custos',{p:{arquivo:ci.nome,aba:ab.nome,hash:ci.hash,vigencia:ci.vig,linhas:an.total,ignorados:ign,itens:itens,preencher:!!ci.preencher,recalcular:!!ci.recalcular,motivo:ci.motivo||'',
+  resumo:{titulo:ab.titulo||'',invalidas:an.inval.slice(0,200),conflitos:an.itens.filter(function(it){return it.valor==null}).map(function(it){return it.codigo}),escolhas:ci.esc}}}).then(sbErr)
+ .then(function(r){var x=r.data||{};S.cimp=null;S.cbusy=false;S.relc={};
+  return loadCustos().then(loadCustosExtra).then(function(){return (x.preenchidos||x.recalculados)?loadData():null}).then(function(){render();
+   openModal('<h2>Importação concluída</h2><div class="kpis">'+[['Inseridos',x.inseridos,'ok'],['Atualizados',x.atualizados,'re'],['Sem alteração',x.sem_alteracao,'c7'],['Ignorados',ign,'ng'],['Registros que receberam custo',x.preenchidos,'c2'],['Registros recalculados',x.recalculados,'c5']].map(function(k){return '<div class="kpi '+k[2]+'"><span>'+k[0]+'</span><b>'+nf(k[1])+'</b></div>'}).join('')+'</div><p class="note">Arquivo <b>'+esc(ci.nome)+'</b> · aba <b>'+esc(ab.nome)+'</b> · vigência '+fd(ci.vig)+' · por '+esc(x.usuario||USER.name)+' em '+new Date(x.em||Date.now()).toLocaleString('pt-BR')+'. Os custos anteriores continuam no histórico de preços.</p><div class="mfoot"><button class="btn pri" data-act="closeM">Fechar</button></div>')})})
+ .catch(function(e){S.cbusy=false;render();toast('Importação não realizada: '+erroTxt(e))})}
+
+/* ---- Histórico de preços ---- */
+function cHist(){var q=norm(S.chq||''),by={},imps={},hoje=hojeISO();S.custos.forEach(function(c){(by[c.codigo]=by[c.codigo]||[]).push(c)});(S.cimps||[]).forEach(function(i){imps[i.id]=i});
+ var codes=Object.keys(by).sort().filter(function(k){return !q||norm(k+' '+by[k].map(function(c){return c.modelo}).join(' ')).indexOf(q)>=0});
+ var semPreco={};(S.recs||[]).forEach(function(r){if(r.ng>0&&r.code&&!temCusto(r)&&!custoVigente(r.code,r.date))semPreco[codeKey(r.code)]=1});
+ var alertas=[],h='';
+ Object.keys(by).forEach(function(k){var l=by[k],mods={};l.forEach(function(c){if(c.modelo)mods[norm(c.modelo)]=c.modelo});if(Object.keys(mods).length>1)alertas.push('<b>'+esc(k)+'</b>: modelos diferentes entre vigências ('+esc(Object.keys(mods).map(function(m){return mods[m]}).join(' / '))+')');
+  l.forEach(function(c){if(c.vigencia>hoje)alertas.push('<b>'+esc(k)+'</b>: preço com vigência futura em '+fd(c.vigencia))})});
+ if(Object.keys(semPreco).length)alertas.push('Códigos com Scrap no período carregado e sem nenhum custo válido para a data: <b>'+esc(Object.keys(semPreco).sort().join(', '))+'</b>');
+ h+='<div class="card"><div class="bar"><input class="search" type="text" data-c="hq" placeholder="Pesquisar código ou modelo… (Enter)" value="'+esc(S.chq||'')+'"><span class="note">'+nf(Object.keys(by).length)+' código(s) · '+nf(S.custos.length)+' preço(s) no histórico</span></div>'
+  +(alertas.length?'<div class="warn"><b>Conferir:</b><br>'+alertas.join('<br>')+'</div>':'<div class="note">Sem conflitos de vigência. Cada código tem no máximo um preço por data de início, e cada preço vale até a véspera do seguinte.</div>')+'</div>';
+ if(!codes.length)h+='<div class="card empty">'+(S.custos.length?'Nenhum código encontrado.':'Nenhum custo cadastrado ainda. Importe a planilha de custos.')+'</div>';
+ codes.forEach(function(k){var l=by[k].slice().sort(function(a,b){return a.vigencia<b.vigencia?-1:1});
+  h+='<div class="card"><h3>'+esc(k)+' · '+esc(l[l.length-1].modelo||'')+'</h3><div class="tw"><table><thead><tr><th>Vigência (início)</th><th>Válido até</th><th class="n">Custo unitário</th><th class="n">Variação</th><th>Modelo</th><th>Origem</th><th>Última alteração</th>'+(isAdmin()?'<th></th>':'')+'</tr></thead><tbody>'
+   +l.map(function(c,i){var nx=l[i+1],pv=l[i-1],vr=pv?(c.custo-pv.custo)/pv.custo*100:null,atual=c.vigencia<=hoje&&(!nx||nx.vigencia>hoje),im=imps[c.importacao_id];
+    return {i:i,html:'<tr'+(atual?' style="font-weight:600"':'')+'><td>'+fd(c.vigencia)+(atual?' <span class="chip both">vigente hoje</span>':c.vigencia>hoje?' <span class="chip re">futura</span>':'')+'</td><td>'+(nx?fd(diaAnterior(nx.vigencia)):'em vigor')+'</td><td class="n">'+brl(c.custo)+'</td><td class="n">'+(vr==null?'—':(vr>0?'+':'')+vr.toFixed(1).replace('.',',')+'%')+'</td><td class="wrap">'+esc(c.modelo)+'</td><td class="wrap">'+(im?esc(im.arquivo)+' · '+esc(im.aba)+' ('+esc(im.usuario_nome)+')':'—')+'</td><td>'+(c.atualizado_em?new Date(c.atualizado_em).toLocaleString('pt-BR'):'—')+'</td>'+(isAdmin()?'<td><button class="btn sm" data-act="c:corrigir" data-tabid="'+c.id+'">Corrigir</button></td>':'')+'</tr>'}}).reverse().map(function(o){return o.html}).join('')+'</tbody></table></div></div>'});
+ var cr=S.ccor||[],TP={correcao:'Correção de valor',recalculo:'Recálculo de registros',preenchimento:'Custo aplicado a registros sem custo'};
+ h+='<div class="card"><h3>Registro de correções e recálculos</h3>'+(cr.length?'<div class="tw"><table><thead><tr><th>Data</th><th>Usuário</th><th>Código</th><th>Vigência</th><th>Tipo</th><th class="n">De</th><th class="n">Para</th><th class="n">Registros afetados</th><th>Motivo</th></tr></thead><tbody>'
+  +cr.map(function(x){return '<tr><td>'+new Date(x.em).toLocaleString('pt-BR')+'</td><td>'+esc(x.usuario_nome)+'</td><td>'+esc(x.codigo)+'</td><td>'+fd(x.vigencia)+'</td><td>'+(TP[x.tipo]||esc(x.tipo))+'</td><td class="n">'+(x.valor_anterior==null?'—':brl(x.valor_anterior))+'</td><td class="n">'+(x.valor_novo==null?'—':brl(x.valor_novo))+'</td><td class="n">'+nf(x.registros_afetados)+'</td><td class="wrap">'+esc(x.motivo)+'</td></tr>'}).join('')+'</tbody></table></div>':'<div class="empty">Nenhuma correção registrada.</div>')+'</div>';
+ return h}
+function corrigirModal(id){var c=S.custos.filter(function(x){return x.id===+id})[0];if(!c)return;
+ openModal('<h2>Corrigir custo</h2><p><b>'+esc(c.codigo)+'</b> · '+esc(c.modelo)+' · vigência desde '+fd(c.vigencia)+' · valor atual <b>'+brl(c.custo)+'</b></p><div class="frm"><label>Novo custo unitário (R$) *<input type="number" id="cc_val" min="0" step="0.0001"></label><label class="full">Motivo da correção *<input type="text" id="cc_mot" maxlength="300"></label></div>'
+  +'<div id="cc_imp" class="note" style="margin-top:8px">Contando os registros que usaram este preço…</div><label style="display:flex;gap:8px;align-items:center;margin-top:8px;font-size:13px"><input type="checkbox" id="cc_rec"> Autorizo recalcular os registros que usaram este preço (altera prejuízos já registrados; meses fechados não mudam)</label>'
+  +'<div class="mfoot"><button class="btn" data-act="closeM">Cancelar</button><button class="btn pri" data-act="c:corrigirOk" data-tabid="'+c.id+'">Salvar correção</button></div>');
+ var nx=S.custos.filter(function(x){return x.codigo===c.codigo&&x.vigencia>c.vigencia}).map(function(x){return x.vigencia}).sort()[0],q=function(){return sb.from('registros').select('id',{count:'exact',head:true}).eq('dados->>custoId',String(c.id))},qd=q().gte('dados->>date',c.vigencia);if(nx)qd=qd.lt('dados->>date',nx);
+ Promise.all([qd,q()]).then(function(r){var den=r[0].count||0,fora=(r[1].count||0)-den,el=$('#cc_imp');if(el)el.textContent=nf(den)+' registro(s) desta vigência usaram este preço e podem ser recalculados. Sem a autorização abaixo, eles mantêm o valor gravado.'+(fora>0?' Outros '+nf(fora)+' registro(s) usaram este preço com data posterior ao início do preço seguinte (o preço seguinte foi importado depois) e não mudam por esta correção.':'')})}
+function corrigirOk(id){var v=+(($('#cc_val')||{}).value||0),m=(($('#cc_mot')||{}).value||'').trim(),rc=!!($('#cc_rec')||{}).checked;
+ if(!(v>0)){toast('Informe um custo maior que zero.');return}if(!m){toast('Informe o motivo da correção.');return}
+ sb.rpc('corrigir_custo',{p_id:+id,p_valor:v,p_motivo:m,p_recalcular:rc}).then(sbErr).then(function(r){var n=(r.data||{}).recalculados||0;closeModal();S.relc={};
+  return loadCustos().then(loadCustosExtra).then(function(){return n?loadData():null}).then(function(){render();toast('Custo corrigido.'+(rc?' '+n+' registro(s) recalculado(s).':' Os registros mantêm o valor gravado.'))})}).catch(function(e){toast('Correção não realizada: '+erroTxt(e))})}
+
+/* ---- Fechamento e relatórios (calculados dos registros, com o custo gravado em cada um) ---- */
+function fetchLight(de,ate){return sbAll(function(){return sb.from('registros').select('id,tab_id,d:dados->>date,code:dados->>code,model:dados->>model,problem:dados->>problem,ng:dados->>ng,cu:dados->>custoUnit,pj:dados->>prejuizo').gte('dados->>date',de).lte('dados->>date',ate).order('id')})
+ .then(function(l){return l.map(function(x){var cu=x.cu==null||x.cu===''?null:+x.cu,ng=+x.ng||0;return {id:+x.id,tab:x.tab_id,date:x.d,code:x.code||'',model:x.model||'',problem:x.problem||'',ng:ng,cu:cu,pj:cu==null?null:(x.pj==null||x.pj===''?Math.round(ng*cu*100)/100:+x.pj)}})})}
+function carregaRel(de,ate,pde,pate){var key=de+'|'+ate+'|'+(pde||''),d=S.relc[key];if(d)return d.loading?null:d;S.relc[key]={loading:true};
+ Promise.all([fetchLight(de,ate),pde?fetchLight(pde,pate):Promise.resolve(null)]).then(function(r){S.relc[key]={list:r[0],prev:r[1]}},function(e){S.relc[key]={erro:'Não foi possível buscar os registros: '+erroTxt(e)}}).then(function(){if(S.page==='custos')render()});return null}
+function agg(l){var o={n:l.length,ng:0,pj:0,sem:0,ngSem:0};l.forEach(function(r){o.ng+=r.ng;if(r.ng>0){if(r.cu==null){o.sem++;o.ngSem+=r.ng}else o.pj+=r.pj}});o.pj=Math.round(o.pj*100)/100;return o}
+/* Semanas de segunda a domingo; quando a semana atravessa dois meses, cada parte fica no seu mês */
+function segmentos(de,ate,gran){var out=[],d=new Date(de+'T12:00:00Z'),f=new Date(ate+'T12:00:00Z'),cur=null,wn={},multi=de.slice(0,7)!==ate.slice(0,7);
+ for(;d<=f;d=new Date(+d+864e5)){var iso=d.toISOString().slice(0,10),mk=iso.slice(0,7),novo=gran==='day'||!cur||cur.mk!==mk||(gran==='week'&&(d.getUTCDay()+6)%7===0);
+  if(novo){cur={de:iso,ate:iso,mk:mk};if(gran==='week'){wn[mk]=(wn[mk]||0)+1;cur.n=wn[mk]}out.push(cur)}cur.ate=iso}
+ out.forEach(function(s){s.label=gran==='day'?fd(s.de):gran==='month'?MESES[+s.mk.slice(5)-1]+'/'+s.mk.slice(0,4):'Semana '+s.n+(multi?' · '+MS[+s.mk.slice(5)-1]+'/'+s.mk.slice(2,4):'')});return out}
+function varTxt(a,b){if(b==null)return '';if(!b)return a?' <span class="note">(antes: 0)</span>':'';var p=(a-b)/b*100;return ' <span class="note" style="color:'+(p>0?'var(--ng)':'var(--ok)')+'">'+(p>0?'▲ +':'▼ ')+p.toFixed(1).replace('.',',')+'%</span>'}
+function relCorpo(l,prev,o){var a=agg(l),p=prev?agg(prev):null,segs=segmentos(o.de,o.ate,o.gran),k=function(t,v,pv,cls,money){return '<div class="kpi '+cls+'"><span>'+t+'</span><b>'+(money?brl(v):nf(v))+'</b>'+(pv!=null?'<small style="display:block;color:rgba(255,255,255,.9);font-size:12px">'+o.prevTxt+': '+(money?brl(pv):nf(pv))+'</small>':'')+'</div>'};
+ var rows=segs.map(function(s){var sl=l.filter(function(r){return r.date>=s.de&&r.date<=s.ate});return {s:s,a:agg(sl)}}),gc=function(kf){var m={};l.forEach(function(r){if(!(r.ng>0))return;var kk=kf(r)||'(vazio)',x=m[kk]||(m[kk]={k:kk,ng:0,pj:0,n:0,sem:0,cods:{}});x.ng+=r.ng;x.n++;if(r.cu==null)x.sem+=r.ng;else x.pj+=r.pj;x.cods[r.model||'']=1});return Object.keys(m).map(function(x){m[x].pj=Math.round(m[x].pj*100)/100;return m[x]}).sort(function(x,y){return y.pj-x.pj||y.ng-x.ng})};
+ var porCod=gc(function(r){return codeKey(r.code)}),porMod=gc(function(r){return r.model});
+ S.relLast={titulo:o.titulo,de:o.de,ate:o.ate,a:a,p:p,rows:rows,porCod:porCod,porMod:porMod,list:l};
+ var tb=function(cab,linhas,foot){return '<div class="tw"><table><thead><tr>'+cab.map(function(c){return '<th'+(c.n?' class="n"':'')+'>'+c.t+'</th>'}).join('')+'</tr></thead><tbody>'+linhas.join('')+'</tbody>'+(foot?'<tfoot><tr>'+foot+'</tr></tfoot>':'')+'</table></div>'};
+ var h='<div class="kpis">'+k('Peças descartadas (Scrap)',a.ng,p&&p.ng,'ng')+k('Prejuízo total',a.pj,p&&p.pj,'re',true)+k('Registros',a.n,p&&p.n,'')+k('Registros com Scrap sem custo',a.sem,null,'c7')+'</div>';
+ if(p)h+='<div class="note" style="margin:-6px 0 10px">Comparação com '+o.prevTxt+': peças'+varTxt(a.ng,p.ng)+' · prejuízo'+varTxt(a.pj,p.pj)+'</div>';
+ if(a.sem)h+='<div class="warn">'+nf(a.sem)+' registro(s) com Scrap ('+nf(a.ngSem)+' peças) não têm custo válido para a data e ficam fora do prejuízo. Nenhum valor é assumido.'+(isAdmin()?' <button class="btn sm" data-act="c:aplicarSem" data-tabid="'+o.de+'|'+o.ate+'">Aplicar o custo vigente a esses registros</button>':'')+'</div>';
+ h+='<div class="card"><h3>'+esc(o.segTit)+'</h3>'+tb([{t:o.segCol},{t:'Período'},{t:'Peças',n:1},{t:'Prejuízo',n:1},{t:'Registros',n:1},{t:'Sem custo',n:1},{t:''}],rows.map(function(x){return '<tr><td>'+esc(x.s.label)+(o.gran==='month'&&mesFechado(x.s.de)?' <span class="chip both">fechado</span>':'')+'</td><td>'+fd(x.s.de)+(x.s.ate!==x.s.de?' a '+fd(x.s.ate):'')+'</td><td class="n">'+nf(x.a.ng)+'</td><td class="n">'+brl(x.a.pj)+'</td><td class="n">'+nf(x.a.n)+'</td><td class="n">'+(x.a.sem?nf(x.a.sem):'—')+'</td><td>'+(x.a.n?'<button class="btn sm" data-act="c:ver" data-tabid="'+x.s.de+'|'+x.s.ate+'">Ver registros</button>':'')+'</td></tr>'}),'<td colspan="2"><b>'+esc(o.totTxt)+'</b></td><td class="n"><b>'+nf(a.ng)+'</b></td><td class="n"><b>'+brl(a.pj)+'</b></td><td class="n"><b>'+nf(a.n)+'</b></td><td class="n">'+(a.sem?nf(a.sem):'—')+'</td><td><button class="btn sm" data-act="c:ver" data-tabid="'+o.de+'|'+o.ate+'">Ver registros</button></td>')+'</div>';
+ h+='<div class="grid2"><div class="card"><h3>Total por código</h3>'+(porCod.length?tb([{t:'Código'},{t:'Peças',n:1},{t:'Prejuízo',n:1},{t:'Registros',n:1},{t:''}],porCod.map(function(x){return '<tr><td>'+esc(x.k)+'</td><td class="n">'+nf(x.ng)+'</td><td class="n">'+brl(x.pj)+(x.sem?' <span class="chip ng" title="peças sem custo">'+nf(x.sem)+' s/ custo</span>':'')+'</td><td class="n">'+nf(x.n)+'</td><td><button class="btn sm" data-act="c:ver" data-tabid="'+o.de+'|'+o.ate+'|code|'+esc(x.k)+'">Ver</button></td></tr>'})):'<div class="empty">Sem Scrap no período.</div>')+'</div>'
+  +'<div class="card"><h3>Total por modelo</h3>'+(porMod.length?tb([{t:'Modelo'},{t:'Peças',n:1},{t:'Prejuízo',n:1},{t:'Registros',n:1},{t:''}],porMod.map(function(x){return '<tr><td class="wrap">'+esc(x.k)+'</td><td class="n">'+nf(x.ng)+'</td><td class="n">'+brl(x.pj)+(x.sem?' <span class="chip ng">'+nf(x.sem)+' s/ custo</span>':'')+'</td><td class="n">'+nf(x.n)+'</td><td><button class="btn sm" data-act="c:ver" data-tabid="'+o.de+'|'+o.ate+'|model|'+esc(x.k)+'">Ver</button></td></tr>'})):'<div class="empty">Sem Scrap no período.</div>')+'</div></div>';
+ return h+'<div class="bar noprint"><button class="btn" data-act="c:exp">Exportar relatório (Excel)</button><button class="btn" data-act="print">Imprimir / PDF</button></div>'}
+function cFech(){var y=new Date().getFullYear(),cf=S.cf||(S.cf={fano:String(y),fmes:String(new Date().getMonth()+1)}),ano=+cf.fano,mes=+cf.fmes||0,anos=[];for(var i=y-4;i<=y+1;i++)anos.push(i);
+ var h='<div class="card noprint"><div class="flt"><label>Ano<select data-c="fano">'+anos.map(function(a){return '<option'+(a===ano?' selected':'')+'>'+a+'</option>'}).join('')+'</select></label><label>Mês<select data-c="fmes"><option value="0">Ano inteiro (fechamento anual)</option>'+MESES.map(function(m,i){return '<option value="'+(i+1)+'"'+(mes===i+1?' selected':'')+'>'+m+'</option>'}).join('')+'</select></label></div><p class="note">Os totais saem dos descartes registrados, cada um com o custo gravado no momento do registro. Preços importados depois não mudam estes valores.</p></div>';
+ var de,ate,pde=null,pate=null;if(mes){de=hojeISO(new Date(ano,mes-1,1));ate=hojeISO(new Date(ano,mes,0));pde=hojeISO(new Date(ano,mes-2,1));pate=hojeISO(new Date(ano,mes-1,0))}else{de=ano+'-01-01';ate=ano+'-12-31'}
+ var d=carregaRel(de,ate,pde,pate);if(!d)return h+'<div class="empty">Carregando os registros do período…</div>';if(d.erro)return h+'<div class="card warn">'+esc(d.erro)+'</div>';
+ var per=mes?de.slice(0,7):'',f=per&&S.fech[per],a=agg(d.list);
+ if(mes){h+='<div class="card"><div class="bar" style="margin:0"><b>'+MESES[mes-1]+'/'+ano+'</b>'+(f&&f.status==='fechado'?'<span class="chip both">Mês fechado</span><span class="note">por '+esc(f.atualizado_por)+' em '+new Date(f.atualizado_em).toLocaleString('pt-BR')+'</span>':'<span class="chip">Mês aberto</span>')
+  +(isAdmin()?(f&&f.status==='fechado'?'<button class="btn" data-act="c:reabrir" data-tabid="'+per+'">Reabrir mês</button>':'<button class="btn pri" data-act="c:fechar" data-tabid="'+per+'">Fechar mês</button>'):'')+'</div>';
+  if(f&&f.status==='fechado'&&f.totais){var t=f.totais;h+=(t.ng!==a.ng||Math.abs((t.pj||0)-a.pj)>0.005||t.n!==a.n)?'<div class="warn">Os registros atuais diferem do fechamento gravado (fechado: '+nf(t.n)+' registros, '+nf(t.ng)+' peças, '+brl(t.pj)+'; agora: '+nf(a.n)+' registros, '+nf(a.ng)+' peças, '+brl(a.pj)+').</div>':'<div class="note" style="margin-top:6px">Totais iguais aos gravados no fechamento.</div>'}
+  h+='<p class="note" style="margin:6px 0 0">Mês fechado: o banco não aceita incluir, alterar ou excluir registros desse mês até o administrador reabrir (com motivo registrado).</p></div>'}
+ var fl=(S.flog||[]).filter(function(x){return !per||x.periodo===per});
+ return h+relCorpo(d.list,d.prev,{de:de,ate:ate,gran:mes?'week':'month',titulo:mes?'Fechamento '+MESES[mes-1]+'/'+ano:'Fechamento anual '+ano,segTit:mes?'Total por semana (segunda a domingo, dentro do mês)':'Total por mês',segCol:mes?'Semana':'Mês',totTxt:mes?'Total mensal':'Total anual',prevTxt:'mês anterior'})
+  +(fl.length?'<div class="card"><h3>Histórico de fechamentos</h3><div class="tw"><table><thead><tr><th>Data</th><th>Mês</th><th>Ação</th><th>Usuário</th><th>Motivo</th></tr></thead><tbody>'+fl.map(function(x){return '<tr><td>'+new Date(x.em).toLocaleString('pt-BR')+'</td><td>'+esc(x.periodo)+'</td><td>'+(x.acao==='fechar'?'Fechou':'Reabriu')+'</td><td>'+esc(x.usuario_nome)+'</td><td class="wrap">'+esc(x.motivo||'—')+'</td></tr>'}).join('')+'</tbody></table></div></div>':'')}
+function cRel(){var cr=S.cr||(S.cr={rtipo:'mes',rref:hojeISO(),rde:'',rate:'',rcod:'',rmod:''}),tp=cr.rtipo,ref=cr.rref||hojeISO(),de,ate,pde=null,pate=null,gran,prevTxt;
+ var h='<div class="card noprint"><div class="flt"><label>Período<select data-c="rtipo">'+[['semana','Semana'],['mes','Mês'],['ano','Ano'],['intervalo','Intervalo personalizado']].map(function(x){return '<option value="'+x[0]+'"'+(tp===x[0]?' selected':'')+'>'+x[1]+'</option>'}).join('')+'</select></label>'
+  +(tp==='intervalo'?'<label>De<input type="date" data-c="rde" value="'+esc(cr.rde)+'"></label><label>Até<input type="date" data-c="rate" value="'+esc(cr.rate)+'"></label>':'<label>Data de referência<input type="date" data-c="rref" value="'+esc(ref)+'"></label>')
+  +'<label>Código<input type="text" data-c="rcod" list="dl_ccod" value="'+esc(cr.rcod)+'" placeholder="Todos"></label><label>Modelo<input type="text" data-c="rmod" list="dl_cmod" value="'+esc(cr.rmod)+'" placeholder="Todos"></label></div>'
+  +'<datalist id="dl_ccod">'+Object.keys(S.custos.reduce(function(m,c){m[c.codigo]=1;return m},{})).sort().map(function(c){return '<option value="'+esc(c)+'">'}).join('')+'</datalist><datalist id="dl_cmod">'+Object.keys(S.custos.reduce(function(m,c){if(c.modelo)m[c.modelo]=1;return m},{})).sort().map(function(c){return '<option value="'+esc(c)+'">'}).join('')+'</datalist></div>';
+ var r0=new Date(ref+'T12:00:00Z');
+ if(tp==='semana'){var mon=new Date(+r0-((r0.getUTCDay()+6)%7)*864e5);de=mon.toISOString().slice(0,10);ate=new Date(+mon+6*864e5).toISOString().slice(0,10);pde=new Date(+mon-7*864e5).toISOString().slice(0,10);pate=diaAnterior(de);gran='day';prevTxt='semana anterior'}
+ else if(tp==='ano'){de=ref.slice(0,4)+'-01-01';ate=ref.slice(0,4)+'-12-31';gran='month';prevTxt=''}
+ else if(tp==='intervalo'){if(!cr.rde||!cr.rate||cr.rde>cr.rate)return h+'<div class="empty">Informe as datas inicial e final do intervalo.</div>';de=cr.rde;ate=cr.rate;var dias=Math.round((new Date(ate)-new Date(de))/864e5)+1;pate=diaAnterior(de);pde=new Date(+new Date(de+'T12:00:00Z')-dias*864e5).toISOString().slice(0,10);gran=dias<=31?'day':dias<=120?'week':'month';prevTxt='período anterior ('+fd(pde)+' a '+fd(pate)+')'}
+ else{de=ref.slice(0,8)+'01';ate=hojeISO(new Date(+ref.slice(0,4),+ref.slice(5,7),0));pde=hojeISO(new Date(+ref.slice(0,4),+ref.slice(5,7)-2,1));pate=diaAnterior(de);gran='week';prevTxt='mês anterior'}
+ var d=carregaRel(de,ate,pde,pate);if(!d)return h+'<div class="empty">Carregando os registros do período…</div>';if(d.erro)return h+'<div class="card warn">'+esc(d.erro)+'</div>';
+ var fc=codeKey(cr.rcod),fm=norm(cr.rmod||''),flt=function(l){return l&&l.filter(function(r){return (!fc||codeKey(r.code)===fc)&&(!fm||norm(r.model).indexOf(fm)>=0)})};
+ return h+'<div class="note" style="margin-bottom:8px">Relatório de prejuízo de '+fd(de)+' a '+fd(ate)+(fc?' · código '+esc(fc):'')+(fm?' · modelo contém "'+esc(cr.rmod)+'"':'')+'</div>'
+  +relCorpo(flt(d.list),flt(d.prev),{de:de,ate:ate,gran:gran,titulo:'Relatório de prejuízo '+fd(de)+' a '+fd(ate),segTit:{day:'Total por dia',week:'Total por semana (segunda a domingo, separada por mês)',month:'Total por mês'}[gran],segCol:{day:'Dia',week:'Semana',month:'Mês'}[gran],totTxt:'Total do período',prevTxt:prevTxt||'período anterior'})}
+function verRegistros(spec){var p=String(spec||'').split('|'),R=S.relLast;if(!R)return;var l=R.list.filter(function(r){return r.date>=p[0]&&r.date<=p[1]&&(!p[2]||(p[2]==='code'?codeKey(r.code)===p[3]:(r.model||'(vazio)')===p[3]))}).sort(function(a,b){return a.date<b.date?-1:a.date>b.date?1:a.id-b.id});
+ var a=agg(l);openModal('<h2>Registros — '+fd(p[0])+(p[1]!==p[0]?' a '+fd(p[1]):'')+(p[2]?' · '+(p[2]==='code'?'código ':'modelo ')+esc(p[3]):'')+'</h2><div class="note">'+nf(a.n)+' registro(s) · '+nf(a.ng)+' peça(s) de Scrap · prejuízo '+brl(a.pj)+(a.sem?' · '+nf(a.sem)+' sem custo':'')+'</div>'
+  +'<div class="tw" style="margin-top:8px"><table><thead><tr><th>ID</th><th>Data</th><th>Código</th><th>Modelo</th><th>Problema</th><th class="n">Scrap</th><th class="n">Custo unit.</th><th class="n">Prejuízo</th><th>Aba</th></tr></thead><tbody>'+l.slice(0,1000).map(function(r){return '<tr><td>'+r.id+'</td><td>'+fd(r.date)+'</td><td>'+esc(r.code)+'</td><td class="wrap">'+esc(r.model)+'</td><td class="wrap">'+esc(r.problem)+'</td><td class="n">'+nf(r.ng)+'</td><td class="n">'+(r.cu==null?(r.ng>0?'<span class="chip ng">sem custo</span>':'—'):brl(r.cu))+'</td><td class="n">'+(r.cu==null?'—':brl(r.pj))+'</td><td>'+esc(tabName(r.tab))+'</td></tr>'}).join('')+'</tbody></table></div>'+(l.length>1000?'<div class="note">Mostrando 1.000 de '+nf(l.length)+'. Exporte o relatório para ver todos.</div>':'')+'<div class="mfoot"><button class="btn pri" data-act="closeM">Fechar</button></div>',true)}
+function relExport(){var R=S.relLast;if(!R)return;var a=R.a;
+ saveBook([['Resumo',[[R.titulo],['Período',fd(R.de)+' a '+fd(R.ate)],['Gerado em',new Date().toLocaleString('pt-BR')],[],['Peças descartadas (Scrap)',a.ng],['Prejuízo total (R$)',a.pj],['Registros',a.n],['Registros com Scrap sem custo',a.sem],['Peças sem custo',a.ngSem]].concat(R.p?[[],['Período anterior — peças',R.p.ng],['Período anterior — prejuízo (R$)',R.p.pj]]:[])],
+  ['Períodos',[['Período','De','Até','Peças','Prejuízo (R$)','Registros','Sem custo']].concat(R.rows.map(function(x){return [x.s.label,fd(x.s.de),fd(x.s.ate),x.a.ng,x.a.pj,x.a.n,x.a.sem]}))],
+  ['Por código',[['Código','Peças','Prejuízo (R$)','Registros','Peças sem custo']].concat(R.porCod.map(function(x){return [x.k,x.ng,x.pj,x.n,x.sem]}))],
+  ['Por modelo',[['Modelo','Peças','Prejuízo (R$)','Registros','Peças sem custo']].concat(R.porMod.map(function(x){return [x.k,x.ng,x.pj,x.n,x.sem]}))],
+  ['Registros',[['ID','Data','Código','Modelo','Problema','Scrap','Custo unitário (R$)','Prejuízo (R$)','Aba']].concat(R.list.slice().sort(function(x,y){return x.date<y.date?-1:1}).map(function(r){return [r.id,fd(r.date),r.code,r.model,r.problem,r.ng,r.cu==null?'':r.cu,r.cu==null?'':r.pj,tabName(r.tab)]}))]],
+  'QC_prejuizo_'+R.de+'_a_'+R.ate+'.xlsx');toast('Relatório exportado.')}
+function fecharMesModal(per){var R=S.relLast,a=R&&R.de.slice(0,7)===per?R.a:null;if(!a){toast('Aguarde o carregamento do mês.');return}
+ openModal('<h2>Fechar '+MESES[+per.slice(5)-1]+'/'+per.slice(0,4)+'</h2><p>Os totais abaixo serão gravados no fechamento. Depois de fechado, o banco não aceita incluir, alterar ou excluir registros deste mês até que um administrador o reabra, informando o motivo.</p><div class="kpis"><div class="kpi ng"><span>Peças descartadas</span><b>'+nf(a.ng)+'</b></div><div class="kpi re"><span>Prejuízo</span><b>'+brl(a.pj)+'</b></div><div class="kpi"><span>Registros</span><b>'+nf(a.n)+'</b></div></div>'+(a.sem?'<div class="warn">'+nf(a.sem)+' registro(s) com Scrap estão sem custo e ficarão fora do prejuízo fechado.</div>':'')+'<div class="mfoot"><button class="btn" data-act="closeM">Cancelar</button><button class="btn pri" data-act="c:fecharOk" data-tabid="'+per+'">Fechar mês</button></div>')}
+function custosAct(a,arg){
+ if(a==='tab'){S.ctab=arg;render()}
+ else if(a==='arquivo')pickAny('.xlsx,.csv',lerPlanilhaCustos);
+ else if(a==='cancelarImp'){S.cimp=null;render()}
+ else if(a==='importar')confirmarImport();
+ else if(a==='corrigir')corrigirModal(arg);
+ else if(a==='corrigirOk')corrigirOk(arg);
+ else if(a==='ver')verRegistros(arg);
+ else if(a==='exp')relExport();
+ else if(a==='fechar')fecharMesModal(arg);
+ else if(a==='fecharOk'){var R=S.relLast,t=R?{n:R.a.n,ng:R.a.ng,pj:R.a.pj,sem:R.a.sem,ngSem:R.a.ngSem,em:new Date().toISOString()}:null;sb.rpc('fechar_mes',{p_periodo:arg,p_totais:t}).then(sbErr).then(function(){closeModal();return loadCustos().then(loadCustosExtra)}).then(function(){render();toast('Mês fechado.')}).catch(function(e){toast('Não foi possível fechar: '+erroTxt(e))})}
+ else if(a==='reabrir'){openModal('<h2>Reabrir '+esc(arg)+'</h2><p>Reabrir permite alterar os registros do mês. A reabertura fica registrada com o seu nome e o motivo.</p><div class="frm"><label class="full">Motivo da reabertura *<input type="text" id="rb_mot" maxlength="300"></label></div><div class="mfoot"><button class="btn" data-act="closeM">Cancelar</button><button class="btn dan" data-act="c:reabrirOk" data-tabid="'+esc(arg)+'">Reabrir mês</button></div>')}
+ else if(a==='reabrirOk'){var m=(($('#rb_mot')||{}).value||'').trim();if(!m){toast('Informe o motivo da reabertura.');return}sb.rpc('reabrir_mes',{p_periodo:arg,p_motivo:m}).then(sbErr).then(function(){closeModal();return loadCustos().then(loadCustosExtra)}).then(function(){render();toast('Mês reaberto.')}).catch(function(e){toast('Não foi possível reabrir: '+erroTxt(e))})}
+ else if(a==='aplicarSem'){var p=String(arg).split('|');if(!confirm('Aplicar o custo vigente na data de cada registro aos registros com Scrap sem custo de '+fd(p[0])+' a '+fd(p[1])+'? Registros que já têm custo e meses fechados não mudam.'))return;
+  sb.rpc('aplicar_custos_sem_valor',{p_de:p[0],p_ate:p[1]}).then(sbErr).then(function(r){S.relc={};toast(nf(r.data||0)+' registro(s) receberam o custo vigente.');return loadData()}).then(render).catch(function(e){toast('Não foi possível aplicar: '+erroTxt(e))})}}
+function custosChange(t){var k=t.getAttribute('data-c'),ci=S.cimp;
+ if(k==='aba'){ci.aba=+t.value;ci.an=null;ci.esc={};var ab=ci.abas[ci.aba];ci.vig=ab&&ab.vigArquivo||'';render()}
+ else if(k==='vig'){ci.vig=t.value;ci.an=null;render()}
+ else if(k==='esc'){ci.esc[t.getAttribute('data-cod')]=t.value;render()}
+ else if(k==='preencher')ci.preencher=t.checked;
+ else if(k==='recalcular'){ci.recalcular=t.checked;render()}
+ else if(k==='motivo')ci.motivo=t.value;
+ else if(k==='hq'){S.chq=t.value;render()}
+ else if(k==='fano'||k==='fmes'){S.cf[k]=t.value;render()}
+ else if(k==='regraBal')salvarRegra('fotoBalanca',{exigir:t.checked});
+ else if(k.charAt(0)==='r'){S.cr[k]=t.value;render()}}
+
 /* ===== Eventos ===== */
  document.addEventListener('click',function(e){
   var t=e.target;
   if(t.id==='mbg'){closeModal();return}
-  var b=t.closest('[data-nav]');if(b){var oldTab=S.activeTabId;S.page=b.getAttribute('data-nav');S.activeTabId=tabIdForPage(S.page);if(oldTab!==S.activeTabId){S.f={};S.pg=1;S.sel=null}if(S.page==='acessos')loadAcc();$('#side').classList.remove('open');render();window.scrollTo(0,0);return}
+  var b=t.closest('[data-nav]');if(b){var oldTab=S.activeTabId;S.page=b.getAttribute('data-nav');S.activeTabId=tabIdForPage(S.page);if(oldTab!==S.activeTabId){S.f={};S.pg=1;S.sel=null}if(S.page==='acessos')loadAcc();if(S.page==='custos')loadCustosExtra();$('#side').classList.remove('open');if(!ajustaPeriodo())render();window.scrollTo(0,0);return}
   b=t.closest('[data-impmode]');if(b){doImport(b.getAttribute('data-impmode'));return}
   b=t.closest('[data-act]');if(b){if(b.hasAttribute('data-tabid'))S.pendingActionTab=b.getAttribute('data-tabid');act(b.getAttribute('data-act'));return}
   b=t.closest('[data-edit]');if(b){formModal(S.recs.filter(function(r){return r.id===+b.getAttribute('data-edit')})[0]);return}
   b=t.closest('[data-del]');if(b){confirmDel(+b.getAttribute('data-del'));return}
-  b=t.closest('[data-delok]');if(b){var id=+b.getAttribute('data-delok');S.recs=S.recs.filter(function(r){return r.id!==id});(memMode?Promise.resolve():dbDel(id)).then(function(){closeModal();toast('Registro excluído.');render()});return}
-  b=t.closest('[data-photo]');if(b){var pr=S.recs.filter(function(r){return r.id===+b.getAttribute('data-photo')})[0];if(pr)openModal('<h2>Foto do problema</h2><img src="'+pr.photo+'" style="max-width:100%;border-radius:8px"><div class="note" style="margin-top:6px">'+fd(pr.date)+' · '+esc(pr.code)+' · '+esc(pr.problem)+'</div><div class="mfoot"><button class="btn pri" data-act="closeM">Fechar</button></div>',true);return}
+  b=t.closest('[data-delok]');if(b){var id=+b.getAttribute('data-delok'),dr=S.recs.filter(function(r){return r.id===id})[0];if(dr&&mesFechado(dr.date)){closeModal();toast(msgFechado(dr.date));return}(memMode?Promise.resolve():dbDel(id)).then(function(){S.recs=S.recs.filter(function(r){return r.id!==id});closeModal();toast('Registro excluído.');render()}).catch(function(e){closeModal();toast('Não foi possível excluir: '+erroTxt(e))});return}
+  b=t.closest('[data-photo]');if(b){var pr=S.recs.filter(function(r){return r.id===+b.getAttribute('data-photo')})[0];if(pr)fotosModal(pr,b.getAttribute('data-qual'));return}
   b=t.closest('[data-libview]');if(b){libView(b.getAttribute('data-libview'));return}
   b=t.closest('[data-libren]');if(b){libRen(b.getAttribute('data-libren'));return}
   b=t.closest('[data-libdel]');if(b){libDel(b.getAttribute('data-libdel'));return}
@@ -811,7 +1142,11 @@ function csvOut(rs){var rows=rowsOut(rs);var keys=Object.keys(rows[0]||{ID:1});r
 document.addEventListener('change',function(e){
  var t=e.target;
  if(t.matches&&t.matches('[data-report-date]')){var rid=t.getAttribute('data-tabid'),rv=S.reportDates[rid]||(S.reportDates[rid]={});rv[t.getAttribute('data-report-date')]=t.value;return}
- if(t.matches&&t.matches('[data-f]')){S.f[t.getAttribute('data-f')]=t.value;S.pg=1;render();return}
+ if(t.matches&&t.matches('[data-f]')){var fk=t.getAttribute('data-f');S.f[fk]=t.value;S.pg=1;if(['d1','d2','ano','mes'].indexOf(fk)>=0&&ajustaPeriodo())return;render();return}
+ if(t.id==='f_bal'||t.id==='f_bal_cam'){readBal(t.files[0]);t.value='';return}
+ if(t.matches&&t.matches('[data-c]')){custosChange(t);return}
+ if(t.id==='seq_campo'){S.seqCampo=t.value;render();return}
+ if(t.id==='f_code'||t.id==='f_date'){custoInfo();return}
  if(t.matches&&t.matches('[data-pg2]')){S.pgroup=t.value;render();return}
  if(t.matches&&t.matches('.langsel')){setLang(t.value);return}
  if(t.id==='f_photo'){readPhoto(t.files[0]);return}
@@ -827,7 +1162,8 @@ document.addEventListener('input',function(e){
  if(t.id==='q'){clearTimeout(S.qt);S.qt=setTimeout(function(){S.f.q=t.value;S.pg=1;var pos=t.selectionStart;render();var q=$('#q');if(q){q.focus();q.setSelectionRange(pos,pos)}},150)}
  else if(t.id==='fq'){clearTimeout(S.qt);S.qt=setTimeout(function(){S.fq=t.value;var pos=t.selectionStart;render();var q=$('#fq');if(q){q.focus();q.setSelectionRange(pos,pos)}},150)}
   else if(t.id==='lib_q'){var gg=$('#libGrid');if(gg)gg.innerHTML=libGrid(t.value)}
-  else if(t.id==='f_ng'||t.id==='f_re')syncForm()});
+  else if(t.id==='f_ng'||t.id==='f_re')syncForm();
+  else if(t.id==='f_code')custoInfo()});
 document.addEventListener('keydown',function(e){if(e.key==='Escape')closeModal()});
 
  function act(a){
@@ -844,7 +1180,11 @@ document.addEventListener('keydown',function(e){if(e.key==='Escape')closeModal()
   else if(a==='deleteTabConfirm')deleteTabConfirm();
   else if(a==='impTab')pickFile(S.pendingActionTab||S.activeTabId||'main');
   else if(a==='toggleF'){S.showF=!S.showF;render()}
-  else if(a==='clearF'){S.f={};S.pg=1;render()}
+  else if(a==='clearF'){S.f={};S.pg=1;if(!ajustaPeriodo())render()}
+  else if(a==='balCam'){var bc=$('#f_bal_cam');if(bc)bc.click()}
+  else if(a==='balArq'){var ba=$('#f_bal');if(ba)ba.click()}
+  else if(a==='rmBal'){S.photoBal='';showBal()}
+  else if(a.indexOf('c:')===0)custosAct(a.slice(2),S.pendingActionTab);
   else if(a==='new')formModal(null);
   else if(a==='saveForm')saveForm();
   else if(a==='dup'){var r=S.recs.filter(function(x){return x.id===S.sel})[0];if(!r){toast('Selecione um registro (●) para duplicar.');return}var c=Object.assign({},r,{id:nextId(),tabId:S.activeTabId||'main'});formModal(null);$('#frm').setAttribute('data-id','');$('#f_date').value=c.date;$('#f_code').value=c.code;$('#f_model').value=c.model;$('#f_problem').value=c.problem;$('#f_ng').value=c.ng;$('#f_re').value=c.re;$('#f_turno').value=c.turno;$('#f_insp').value=c.insp;$('#f_obs').value=c.obs;$('#f_local').value=c.local||'';$('#f_operador').value=c.operador||'';$('#f_maquina').value=c.maquina||'';$('#f_soldador').value=c.soldador||'';$('#f_turnoOperador').value=c.turnoOperador||'';$('#f_turnoSoldador').value=c.turnoSoldador||'';$('#f_turnoMaquina').value=c.turnoMaquina||'';S.photo=c.photo||'';showPrev();var tt=tipoOf(c);$('#f_tipo').value=tt==='—'?'NG':tt;syncForm();$('#modals h2').textContent='Duplicar registro #'+r.id+' (ajuste e salve)'}
@@ -886,7 +1226,7 @@ document.addEventListener('keydown',function(e){if(e.key==='Escape')closeModal()
   var rs=filtered(S.viewRecs),h='';
   var mb='<button class="btn menu-btn noprint" id="mb" style="margin-bottom:8px">☰ Menu</button> <button class="btn pri menu-btn noprint" data-act="impX" style="margin-bottom:8px">📂 IMPORTAR EXCEL</button>';
   if(current){h=pCustomTab(current,rs)}
-  else switch(S.page){case 'dash':h=pDash(rs,'Dashboard',{consol:true});break;case 'reg':h=pReg(rs,{base:S.viewRecs});break;case 'pareto':h=pPareto(rs);break;case 'per':h=pPer(rs);break;case 'mes':h=pMes(rs);break;case 'rel':h=pRel(rs);break;case 'dados':h=pDados();break;case 'fotos':h=pFotos();break;case 'acessos':h=pAcessos();break}
+  else switch(S.page){case 'dash':h=pDash(rs,'Dashboard',{consol:true});break;case 'reg':h=pReg(rs,{base:S.viewRecs});break;case 'pareto':h=pPareto(rs);break;case 'per':h=pPer(rs);break;case 'mes':h=pMes(rs);break;case 'rel':h=pRel(rs);break;case 'dados':h=pDados();break;case 'fotos':h=pFotos();break;case 'custos':h=pCustos();break;case 'acessos':h=pAcessos();break}
   if(analytics)h='<div class="note" style="margin:0 0 10px">Fonte dos dados: todas as abas (consolidado) · '+nf(S.regTabs.length+1)+' abas incluídas.</div>'+h;var y=window.scrollY;document.getElementById('main').innerHTML=mb+h;window.scrollTo(0,y);
   var m=$('#mb');if(m)m.onclick=function(){$('#side').classList.toggle('open')};i18n()}
 
@@ -969,7 +1309,7 @@ function expCsvStd(sep){var o=scopeList();if(!o.list.length){toast('Não há reg
 function expAna(){var o=scopeList();if(!o.list.length){toast('Não há registros para exportar.');return}expXlsx(o.list,'QC_analitico_'+o.name+'_'+stamp()+'.xlsx')}
 function loadAllFotos(){return Promise.all((S.fotos||[]).map(function(f){return mget(fotoKey(f.id)).then(function(d){return {id:f.id,name:f.name,code:f.code,model:f.model,problem:f.problem,data:d}})}))}
 function inlineFoto(u){if(!u||/^data:/.test(u))return Promise.resolve(u||'');return fetch(u).then(function(r){return r.blob()}).then(function(b){return new Promise(function(res){var fr=new FileReader();fr.onload=function(){res(fr.result)};fr.onerror=function(){res('')};fr.readAsDataURL(b)})}).catch(function(){return ''})}
-function expBackup(){toast('Preparando o backup com as fotos…');Promise.all([loadAllFotos(),seqMap(S.recs,function(r){return inlineFoto(r.photo).then(function(ph){var c=Object.assign({},r);c.photo=ph;delete c.photoMini;return c})})]).then(function(res){return seqMap(res[0],function(f){return inlineFoto(f.data).then(function(d){f.data=d;return f})}).then(function(fotos){return [fotos,res[1]]})}).then(function(res){var fotos=res[0],recs=res[1];download('QC_backup_completo_'+stamp()+'.json',new Blob([JSON.stringify({sistema:'QC',versao:2,data:new Date().toISOString(),records:recs,regTabs:S.regTabs||[],fotos:fotos})],{type:'application/json'}));toast('Backup completo gerado: todas as abas, registros e biblioteca de fotos.');S.ultimoBackup={em:new Date().toISOString(),por:USER&&USER.name||''};mset('ultimoBackup',S.ultimoBackup);if(S.page==='dados')render()})}
+function expBackup(){toast('Preparando o backup com as fotos…');Promise.all([loadAllFotos(),seqMap(S.recs,function(r){return Promise.all([inlineFoto(r.photo),inlineFoto(r.photoBalanca)]).then(function(ph){var c=Object.assign({},r);c.photo=ph[0];c.photoBalanca=ph[1];delete c.photoMini;return c})})]).then(function(res){return seqMap(res[0],function(f){return inlineFoto(f.data).then(function(d){f.data=d;return f})}).then(function(fotos){return [fotos,res[1]]})}).then(function(res){var fotos=res[0],recs=res[1];download('QC_backup_completo_'+stamp()+'.json',new Blob([JSON.stringify({sistema:'QC',versao:2,data:new Date().toISOString(),records:recs,regTabs:S.regTabs||[],fotos:fotos})],{type:'application/json'}));toast('Backup completo gerado: todas as abas, registros e biblioteca de fotos.');S.ultimoBackup={em:new Date().toISOString(),por:USER&&USER.name||''};mset('ultimoBackup',S.ultimoBackup);if(S.page==='dados')render()})}
 function resumoAoa(){var a=[['QC — Registro completo (gerado em '+new Date().toLocaleString('pt-BR')+')'],[],['Aba','Registros','Scrap','Rework','Total','Período','Com foto']];tabsAll().forEach(function(t){var l=recordsForTab(t.id),s=sum(l);a.push([t.name,l.length,s.ng,s.re,s.tot,periodText(l),l.filter(function(r){return r.photo}).length])});var s=sum(S.recs);a.push(['TOTAL GERAL',S.recs.length,s.ng,s.re,s.tot,periodText(S.recs),S.recs.filter(function(r){return r.photo}).length]);return a}
 function regAll(){var sh=[['RESUMO',resumoAoa()],['TODOS',stdAoa(S.recs,true)]];tabsAll().forEach(function(t){sh.push([t.name,stdAoa(recordsForTab(t.id))])});saveBook(sh,'QC_REGISTRO_COMPLETO_'+stamp()+'.xlsx');toast('Registro completo gerado: '+S.recs.length+' registro(s) de '+tabsAll().length+' aba(s).')}
 /* salvar por dia / semana / mês / ano */

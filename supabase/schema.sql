@@ -191,3 +191,7 @@ grant execute on function public.uso_banco() to authenticated;
 -- ---------- Modo por período ----------
 -- Índice pela data do registro: buscar um mês/ano fica rápido mesmo com centenas de milhares.
 create index if not exists registros_data on public.registros ((dados ->> 'date'));
+
+-- ---------- Gestão de Custos ----------
+-- Custos por código com vigência, importação de planilhas, fechamento mensal
+-- e foto da caixa na balança: rode também o arquivo supabase/gestao_custos.sql.

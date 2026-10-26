@@ -7,10 +7,12 @@ Sistema web para registro e análise de controle de qualidade, feito em um únic
 ## Funcionalidades
 
 - Dashboard com indicadores
-- Registros com abas personalizáveis e fotos
+- Registros com abas personalizáveis, foto do problema e foto da caixa na balança
 - Pareto & Rankings
 - Análises por período e visão por mês
 - Relatório executivo
+- Gestão de Custos: importação mensal da planilha de custos, histórico de preços com vigência,
+  prejuízo dos descartes (Scrap × custo vigente na data), fechamento semanal/mensal/anual
 - Importação de planilhas Excel (.xlsx) e CSV
 - Backup e restauração dos dados
 - Controle de acessos (administrador e usuário)
@@ -23,10 +25,11 @@ No primeiro acesso, crie a conta de administrador.
 
 ## Onde os dados ficam
 
-Hoje os registros e usuários ficam salvos **no navegador de cada computador**
-(IndexedDB e localStorage). Eles não são compartilhados entre pessoas ou dispositivos.
+Os registros, fotos e custos ficam no Supabase e são os mesmos para todos os usuários logados.
 Use **Dados & Backup** para exportar uma cópia regularmente.
 
-## Próximos passos
+## Banco de dados
 
-- [ ] Login real e banco de dados na nuvem (Supabase ou Firebase) para compartilhar dados entre a equipe
+1. `supabase/schema.sql` — tabelas, segurança e fotos.
+2. `supabase/gestao_custos.sql` — custos com vigência, importações, correções, fechamento mensal e regras.
+3. `supabase/teste_gestao_custos.sql` — confere as regras de custo no banco sem gravar nada.
